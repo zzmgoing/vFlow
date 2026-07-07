@@ -18,6 +18,7 @@ import com.chaomixian.vflow.core.workflow.module.snippet.*
 import com.chaomixian.vflow.core.workflow.module.ui.blocks.*
 import com.chaomixian.vflow.core.workflow.module.ui.components.*
 import com.chaomixian.vflow.core.workflow.module.core.*
+import com.vflow.fork.workflow.module.ForkModuleRegistry
 
 object ModuleRegistry {
     private val modules = mutableMapOf<String, ActionModule>()
@@ -104,6 +105,7 @@ object ModuleRegistry {
         register(FindTextUntilModule(), context)
         register(FindImageModule(), context)
         register(GetCurrentActivityModule(), context)
+        ForkModuleRegistry.registerAll(context)
 
         // 逻辑控制
         register(IfModule(), context)
