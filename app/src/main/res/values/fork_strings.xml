@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="fork_goldfinger_direction_up">上</string>
+    <string name="fork_goldfinger_direction_down">下</string>
+    <string name="fork_goldfinger_direction_left">左</string>
+    <string name="fork_goldfinger_direction_right">右</string>
+</resources>

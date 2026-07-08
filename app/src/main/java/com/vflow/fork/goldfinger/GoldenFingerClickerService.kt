@@ -25,6 +25,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * 金手指连点器悬浮窗服务。
@@ -42,12 +43,16 @@ class GoldenFingerClickerService : Service() {
 
     private var iconSizePx = 0
     private var intervalMs = 50L
+    private var direction = DIRECTION_UP
+    private var clickGapPx = 0
     private var offsetXPx = 0
     private var offsetYPx = 0
     private var doubleTapTimeoutMs = 500L
 
     private var initialWindowX = 0
     private var initialWindowY = 0
+    private var windowScreenX = 0
+    private var windowScreenY = 0
     private var downRawX = 0f
     private var downRawY = 0f
     private var moved = false
@@ -59,9 +64,16 @@ class GoldenFingerClickerService : Service() {
         const val ACTION_CLOSE = "com.vflow.fork.goldfinger.CLOSE"
         const val EXTRA_ICON_SIZE_DP = "icon_size_dp"
         const val EXTRA_INTERVAL_MS = "interval_ms"
+        const val EXTRA_DIRECTION = "direction"
+        const val EXTRA_CLICK_GAP_DP = "click_gap_dp"
         const val EXTRA_OFFSET_X_DP = "offset_x_dp"
         const val EXTRA_OFFSET_Y_DP = "offset_y_dp"
         const val EXTRA_DOUBLE_TAP_TIMEOUT_MS = "double_tap_timeout_ms"
+
+        const val DIRECTION_UP = "up"
+        const val DIRECTION_DOWN = "down"
+        const val DIRECTION_LEFT = "left"
+        const val DIRECTION_RIGHT = "right"
 
         private const val TOUCH_SLOP_DP = 12
         private const val EXIT_HINT_MS = 3_000L
@@ -102,8 +114,12 @@ class GoldenFingerClickerService : Service() {
 
         iconSizePx = (intent?.getIntExtra(EXTRA_ICON_SIZE_DP, 60) ?: 60).coerceIn(32, 160).dpToPx()
         intervalMs = (intent?.getIntExtra(EXTRA_INTERVAL_MS, 50) ?: 50).coerceIn(10, 2_000).toLong()
+        direction = (intent?.getStringExtra(EXTRA_DIRECTION) ?: DIRECTION_UP).takeIf {
+            it == DIRECTION_UP || it == DIRECTION_DOWN || it == DIRECTION_LEFT || it == DIRECTION_RIGHT
+        } ?: DIRECTION_UP
+        clickGapPx = (intent?.getIntExtra(EXTRA_CLICK_GAP_DP, 0) ?: 0).coerceIn(0, 240).dpToPx()
         offsetXPx = (intent?.getIntExtra(EXTRA_OFFSET_X_DP, 0) ?: 0).coerceIn(-240, 240).dpToPx()
-        offsetYPx = (intent?.getIntExtra(EXTRA_OFFSET_Y_DP, -8) ?: -8).coerceIn(-240, 240).dpToPx()
+        offsetYPx = (intent?.getIntExtra(EXTRA_OFFSET_Y_DP, 0) ?: 0).coerceIn(-240, 240).dpToPx()
         doubleTapTimeoutMs = (intent?.getIntExtra(EXTRA_DOUBLE_TAP_TIMEOUT_MS, 500) ?: 500).coerceIn(120, 1_500).toLong()
 
         val displayMetrics = resources.displayMetrics
@@ -126,10 +142,13 @@ class GoldenFingerClickerService : Service() {
             x = startX
             y = startY
         }
+        windowScreenX = startX
+        windowScreenY = startY
 
         iconView = ImageView(this).apply {
             setImageResource(R.drawable.fork_golden_finger)
             scaleType = ImageView.ScaleType.FIT_CENTER
+            rotation = directionToRotation(direction)
             setOnTouchListener { _, event -> handleTouch(event) }
         }
 
@@ -150,6 +169,7 @@ class GoldenFingerClickerService : Service() {
             MotionEvent.ACTION_DOWN -> {
                 initialWindowX = params.x
                 initialWindowY = params.y
+                updateWindowScreenPosition(event)
                 downRawX = event.rawX
                 downRawY = event.rawY
                 moved = false
@@ -171,6 +191,7 @@ class GoldenFingerClickerService : Service() {
                 if (moved) {
                     params.x = initialWindowX + deltaX.toInt()
                     params.y = initialWindowY + deltaY.toInt()
+                    updateWindowScreenPosition(event)
                     iconView?.let { windowManager.updateViewLayout(it, params) }
                 }
                 return true
@@ -287,18 +308,37 @@ class GoldenFingerClickerService : Service() {
     }
 
     private fun currentClickTarget(): Pair<Int, Int> {
-        val params = windowParams
-        val x = if (params != null) {
-            params.x + iconSizePx / 2 + offsetXPx
-        } else {
-            0
+        val view = iconView
+        val left = windowScreenX
+        val top = windowScreenY
+        val width = view?.width?.takeIf { it > 0 } ?: iconSizePx
+        val height = view?.height?.takeIf { it > 0 } ?: iconSizePx
+        val centerX = left + width / 2
+        val centerY = top + height / 2
+
+        val base = when (direction) {
+            DIRECTION_DOWN -> centerX to top + height + clickGapPx
+            DIRECTION_LEFT -> left - clickGapPx - 1 to centerY
+            DIRECTION_RIGHT -> left + width + clickGapPx to centerY
+            else -> centerX to top - clickGapPx - 1
         }
-        val y = if (params != null) {
-            params.y + offsetYPx
-        } else {
-            0
-        }
+        val x = base.first + offsetXPx
+        val y = base.second + offsetYPx
         return x.coerceAtLeast(0) to y.coerceAtLeast(0)
+    }
+
+    private fun updateWindowScreenPosition(event: MotionEvent) {
+        windowScreenX = (event.rawX - event.x).roundToInt()
+        windowScreenY = (event.rawY - event.y).roundToInt()
+    }
+
+    private fun directionToRotation(direction: String): Float {
+        return when (direction) {
+            DIRECTION_RIGHT -> 90f
+            DIRECTION_DOWN -> 180f
+            DIRECTION_LEFT -> 270f
+            else -> 0f
+        }
     }
 
     private fun closeWindow(removeService: Boolean = true) {

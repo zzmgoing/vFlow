@@ -26,6 +26,13 @@ import com.vflow.fork.goldfinger.GoldenFingerClickerService
 class GoldenFingerClickerModule : BaseModule() {
     override val id = "vflow.fork.goldfinger_clicker"
 
+    companion object {
+        private const val DIRECTION_UP = "up"
+        private const val DIRECTION_DOWN = "down"
+        private const val DIRECTION_LEFT = "left"
+        private const val DIRECTION_RIGHT = "right"
+    }
+
     override val metadata = ActionMetadata(
         name = "金手指连点器",
         description = "显示金手指悬浮窗，双击开始连点，单击或移动停止。",
@@ -55,6 +62,33 @@ class GoldenFingerClickerModule : BaseModule() {
             acceptsMagicVariable = false
         ),
         InputDefinition(
+            id = "direction",
+            name = "金手指方向",
+            staticType = ParameterType.ENUM,
+            defaultValue = DIRECTION_UP,
+            options = listOf(DIRECTION_UP, DIRECTION_DOWN, DIRECTION_LEFT, DIRECTION_RIGHT),
+            optionsStringRes = listOf(
+                R.string.fork_goldfinger_direction_up,
+                R.string.fork_goldfinger_direction_down,
+                R.string.fork_goldfinger_direction_left,
+                R.string.fork_goldfinger_direction_right
+            ),
+            legacyValueMap = mapOf(
+                "上" to DIRECTION_UP,
+                "下" to DIRECTION_DOWN,
+                "左" to DIRECTION_LEFT,
+                "右" to DIRECTION_RIGHT
+            ),
+            acceptsMagicVariable = false
+        ),
+        InputDefinition(
+            id = "click_gap",
+            name = "点击距离(dp)",
+            staticType = ParameterType.NUMBER,
+            defaultValue = 0,
+            acceptsMagicVariable = false
+        ),
+        InputDefinition(
             id = "offset_x",
             name = "点击点X偏移(dp)",
             staticType = ParameterType.NUMBER,
@@ -65,7 +99,7 @@ class GoldenFingerClickerModule : BaseModule() {
             id = "offset_y",
             name = "点击点Y偏移(dp)",
             staticType = ParameterType.NUMBER,
-            defaultValue = -8,
+            defaultValue = 0,
             acceptsMagicVariable = false
         ),
         InputDefinition(
@@ -87,10 +121,10 @@ class GoldenFingerClickerModule : BaseModule() {
             context,
             "启动金手指连点器，间隔 ",
             PillUtil.createPillFromParam(step.parameters["interval_ms"], inputs[1]),
-            "ms，偏移 ",
-            PillUtil.createPillFromParam(step.parameters["offset_x"], inputs[2]),
-            ", ",
-            PillUtil.createPillFromParam(step.parameters["offset_y"], inputs[3]),
+            "ms，方向 ",
+            PillUtil.createPillFromParam(step.parameters["direction"], inputs[2]),
+            "，距离 ",
+            PillUtil.createPillFromParam(step.parameters["click_gap"], inputs[3]),
             "dp"
         )
     }
@@ -101,14 +135,20 @@ class GoldenFingerClickerModule : BaseModule() {
     ): ExecutionResult {
         val iconSize = context.getVariableAsInt("icon_size")?.coerceIn(32, 160) ?: 60
         val intervalMs = context.getVariableAsInt("interval_ms")?.coerceIn(10, 2_000) ?: 50
+        val directionInput = getInputs().first { it.id == "direction" }
+        val rawDirection = context.getVariableAsString("direction", DIRECTION_UP)
+        val direction = directionInput.normalizeEnumValue(rawDirection) ?: DIRECTION_UP
+        val clickGap = context.getVariableAsInt("click_gap")?.coerceIn(0, 240) ?: 0
         val offsetX = context.getVariableAsInt("offset_x")?.coerceIn(-240, 240) ?: 0
-        val offsetY = context.getVariableAsInt("offset_y")?.coerceIn(-240, 240) ?: -8
+        val offsetY = context.getVariableAsInt("offset_y")?.coerceIn(-240, 240) ?: 0
         val doubleTapTimeoutMs = context.getVariableAsInt("double_tap_timeout_ms")?.coerceIn(120, 1_500) ?: 500
 
         val intent = Intent(context.applicationContext, GoldenFingerClickerService::class.java).apply {
             action = GoldenFingerClickerService.ACTION_SHOW
             putExtra(GoldenFingerClickerService.EXTRA_ICON_SIZE_DP, iconSize)
             putExtra(GoldenFingerClickerService.EXTRA_INTERVAL_MS, intervalMs)
+            putExtra(GoldenFingerClickerService.EXTRA_DIRECTION, direction)
+            putExtra(GoldenFingerClickerService.EXTRA_CLICK_GAP_DP, clickGap)
             putExtra(GoldenFingerClickerService.EXTRA_OFFSET_X_DP, offsetX)
             putExtra(GoldenFingerClickerService.EXTRA_OFFSET_Y_DP, offsetY)
             putExtra(GoldenFingerClickerService.EXTRA_DOUBLE_TAP_TIMEOUT_MS, doubleTapTimeoutMs)

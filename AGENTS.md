@@ -73,6 +73,7 @@ ForkModuleRegistry.registerAll(context)
 ## 资源与资产
 
 - fork 资源放在常规 Android 资源目录中，但使用 `fork_` 前缀。
+- fork 字符串资源统一放在独立的 `app/src/main/res/values/fork_strings.xml` 中，不要继续追加到上游 `strings.xml`，以减少同步上游时的合并冲突。
 - 除非功能确实需要，不要把生成物或大型二进制资产加入源码。
 - 除非任务明确要求 Core 行为或发布打包，不要覆盖 `vFlowCore.dex`、OCR 模型、native binary、图标或截图等上游资产。
 
