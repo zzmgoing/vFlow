@@ -1933,6 +1933,26 @@
     <string name="param_vflow_logic_if_start_value2_name">Compare Value 2</string>
     <string name="output_vflow_logic_if_start_result_name">Condition Result</string>
 
+    <!-- vflow.logic.menu -->
+    <string name="module_vflow_logic_menu_start_desc">Show a menu and run the operations for the selected item</string>
+    <string name="module_vflow_logic_menu_start_name">Choose from Menu</string>
+    <string name="param_vflow_logic_menu_start_prompt_name">Prompt</string>
+    <string name="param_vflow_logic_menu_start_items_name">Menu Items</string>
+    <string name="output_vflow_logic_menu_start_selected_item_name">Selected Item</string>
+    <string name="output_vflow_logic_menu_start_selected_item_id_name">Selected Item ID</string>
+    <string name="module_vflow_logic_menu_item_desc">Operations for the selected menu item</string>
+    <string name="module_vflow_logic_menu_item_name">Menu Item</string>
+    <string name="module_vflow_logic_menu_end_desc">End point of the menu block</string>
+    <string name="module_vflow_logic_menu_end_name">End Menu</string>
+
+    <!-- vflow.logic.list.choose -->
+    <string name="module_vflow_logic_list_choose_desc">Choose an item from an input list</string>
+    <string name="module_vflow_logic_list_choose_name">Choose from List</string>
+    <string name="param_vflow_logic_list_choose_prompt_name">Prompt</string>
+    <string name="param_vflow_logic_list_choose_items_name">List</string>
+    <string name="output_vflow_logic_list_choose_selected_item_name">Selected Item</string>
+    <string name="output_vflow_logic_list_choose_selected_index_name">Selected Index</string>
+
     <!-- vflow.logic.jump -->
     <string name="module_vflow_logic_jump_desc">Jump to specified step in workflow and continue execution</string>
     <string name="module_vflow_logic_jump_name">Jump to Step</string>
@@ -3088,6 +3108,10 @@
     <string name="summary_vflow_logic_and">and</string>
     <string name="summary_vflow_logic_between">between</string>
     <string name="summary_vflow_logic_else">Else</string>
+    <string name="summary_vflow_logic_menu_prefix">Choose from menu with</string>
+    <string name="summary_vflow_logic_menu_suffix"></string>
+    <string name="summary_vflow_logic_list_choose_prefix">Choose from</string>
+    <string name="summary_vflow_logic_list_choose_suffix"></string>
     <string name="summary_vflow_logic_loop_prefix">Loop</string>
     <string name="summary_vflow_logic_loop_suffix">times</string>
     <string name="summary_vflow_logic_stop_and_return_prefix">Return</string>

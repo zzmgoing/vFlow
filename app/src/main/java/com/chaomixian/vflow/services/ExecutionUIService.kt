@@ -195,6 +195,16 @@ class ExecutionUIService(private val context: Context) {
         return startActivityAndAwaitResult(intent, title, "点击这里输入 $type").await()
     }
 
+    suspend fun requestMenuChoice(title: String, choices: List<String>): Int? {
+        if (choices.isEmpty()) return null
+        val intent = Intent(context, OverlayUIActivity::class.java).apply {
+            putExtra("request_type", "menu_choice")
+            putExtra("title", title)
+            putStringArrayListExtra("menu_choices", ArrayList(choices))
+        }
+        return startActivityAndAwaitResult(intent, title, choices.joinToString(" / ").take(50)).await() as? Int
+    }
+
     suspend fun requestSpeechToText(
         request: SpeechToTextOverlayRequest
     ): SpeechToTextResult? {

@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -140,6 +141,7 @@ data class WorkflowMenuItemAction(
 fun WorkflowListScreen(
     uiState: WorkflowListUiState,
     layoutMode: WorkflowLayoutMode,
+    isWideLayout: Boolean = false,
     actions: WorkflowListScreenActions,
     extraBottomPadding: Dp = 0.dp,
     modifier: Modifier = Modifier
@@ -252,8 +254,15 @@ fun WorkflowListScreen(
         )
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        if (layoutMode == WorkflowLayoutMode.Grid) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val useTabletGrid = isWideLayout || (maxWidth >= 840.dp && maxWidth > maxHeight)
+        val gridColumnCount = if (useTabletGrid) {
+            (maxWidth / 260.dp).toInt().coerceIn(2, 4)
+        } else {
+            2
+        }
+
+        if (layoutMode == WorkflowLayoutMode.Grid || useTabletGrid) {
             WorkflowGridContent(
                 filteredItems = filteredItems,
                 uiState = uiState,
@@ -267,6 +276,8 @@ fun WorkflowListScreen(
                 lazyGridState = lazyGridState,
                 reorderableGridState = reorderableGridState,
                 onPersistOrder = ::persistOrder,
+                columnCount = gridColumnCount,
+                isWideLayout = useTabletGrid,
             )
         } else {
             LazyColumn(
@@ -1067,10 +1078,12 @@ private fun WorkflowGridContent(
     lazyGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     reorderableGridState: sh.calvin.reorderable.ReorderableLazyGridState,
     onPersistOrder: () -> Unit,
+    columnCount: Int,
+    isWideLayout: Boolean,
 ) {
     LazyVerticalGrid(
         state = lazyGridState,
-        columns = GridCells.Fixed(2),
+        columns = GridCells.Fixed(columnCount),
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
@@ -1085,7 +1098,7 @@ private fun WorkflowGridContent(
         horizontalArrangement = Arrangement.spacedBy(0.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        item(span = { GridItemSpan(2) }) {
+        item(span = { GridItemSpan(columnCount) }) {
             SearchBarCard(
                 value = searchQuery,
                 onValueChange = onSearchQueryChange,
@@ -1097,13 +1110,13 @@ private fun WorkflowGridContent(
         }
 
         if (showLoadingCard) {
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(columnCount) }) {
                 WorkflowLoadingState(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp)
                 )
             }
         } else if (filteredItems.isEmpty()) {
-            item(span = { GridItemSpan(2) }) {
+            item(span = { GridItemSpan(columnCount) }) {
                 if (isSearching) {
                     SearchEmptyStateCard(
                         titleRes = R.string.workflow_search_no_results,
@@ -1122,7 +1135,7 @@ private fun WorkflowGridContent(
                 key = { item -> item.id },
                 span = { item ->
                     when (item) {
-                        is WorkflowListItem.FolderItem -> GridItemSpan(2)
+                        is WorkflowListItem.FolderItem -> GridItemSpan(columnCount)
                         is WorkflowListItem.WorkflowItem -> GridItemSpan(1)
                     }
                 }
@@ -1187,6 +1200,7 @@ private fun WorkflowGridContent(
                                 workflow = workflow,
                                 executionStateVersion = uiState.executionStateVersion,
                                 isDragging = false,
+                                isWideLayout = isWideLayout,
                                 topMenuActions = topMenuActions,
                                 regularMenuActions = regularMenuActions,
                                 onOpenWorkflow = { actions.onOpenWorkflow(workflow) },
@@ -1206,6 +1220,7 @@ private fun WorkflowGridContent(
                                     workflow = workflow,
                                     executionStateVersion = uiState.executionStateVersion,
                                     isDragging = isDragging,
+                                    isWideLayout = isWideLayout,
                                     topMenuActions = topMenuActions,
                                     regularMenuActions = regularMenuActions,
                                     dragHandleModifier = with(this) {
@@ -1252,6 +1267,7 @@ private fun WorkflowCardCompact(
     workflow: Workflow,
     executionStateVersion: Int,
     isDragging: Boolean,
+    isWideLayout: Boolean,
     topMenuActions: List<WorkflowMenuItemAction>,
     regularMenuActions: List<WorkflowMenuItemAction>,
     dragHandleModifier: Modifier = Modifier,
@@ -1289,7 +1305,7 @@ private fun WorkflowCardCompact(
                     scaleY = 1.02f
                 }
             }
-            .aspectRatio(1f),
+            .aspectRatio(if (isWideLayout) 1.35f else 1f),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isDragging) 8.dp else 0.dp),
         colors = CardDefaults.cardColors(

@@ -90,6 +90,7 @@ fun WorkflowListRoute(
     workflowAction: WorkflowTopBarAction?,
     workflowActionVersion: Int,
     extraBottomPadding: androidx.compose.ui.unit.Dp,
+    isWideLayout: Boolean,
     modifier: Modifier = Modifier,
     workflowListViewModel: WorkflowListViewModel = viewModel(),
 ) {
@@ -479,6 +480,7 @@ fun WorkflowListRoute(
     WorkflowListScreen(
         uiState = uiState,
         layoutMode = workflowLayoutMode,
+        isWideLayout = isWideLayout,
         extraBottomPadding = extraBottomPadding,
         modifier = modifier,
         actions = WorkflowListScreenActions(

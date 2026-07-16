@@ -25,6 +25,10 @@ import com.google.android.material.textfield.TextInputLayout
 class ListItemAdapter(
     private val data: MutableList<String>,
     private val allSteps: List<ActionStep>? = null,
+    private val showMagicControls: Boolean = true,
+    private val onItemAdded: (position: Int) -> Unit = {},
+    private val onItemRemoved: (position: Int) -> Unit = {},
+    private val onItemChanged: (position: Int, value: String) -> Unit = { _, _ -> },
     private val onMagicClick: (position: Int) -> Unit
 ) : RecyclerView.Adapter<ListItemAdapter.ViewHolder>() {
 
@@ -52,6 +56,7 @@ class ListItemAdapter(
 
     fun addItem() {
         data.add("")
+        onItemAdded(data.lastIndex)
         notifyItemInserted(data.size - 1)
     }
 
@@ -68,6 +73,7 @@ class ListItemAdapter(
     fun updateItem(position: Int, value: String) {
         if (position >= 0 && position < data.size) {
             data[position] = value
+            onItemChanged(position, value)
             notifyItemChanged(position)
         }
     }
@@ -127,7 +133,9 @@ class ListItemAdapter(
                 val watcher = editText.doAfterTextChanged { text ->
                     val currentPosition = holder.currentDataPosition()
                     if (currentPosition != RecyclerView.NO_POSITION) {
-                        data[currentPosition] = text.toString()
+                        val value = text.toString()
+                        data[currentPosition] = value
+                        onItemChanged(currentPosition, value)
                     }
                 }
                 editText.tag = watcher
@@ -140,6 +148,7 @@ class ListItemAdapter(
             val position = holder.currentDataPosition()
             if (position != RecyclerView.NO_POSITION) {
                 holder.clearFocusBeforeRemoval()
+                onItemRemoved(position)
                 data.removeAt(position)
                 notifyItemRemoved(position)
                 if (position < data.size) {
@@ -149,9 +158,10 @@ class ListItemAdapter(
         }
 
         // 魔法变量按钮的点击事件
+        holder.magicButton.visibility = if (showMagicControls) View.VISIBLE else View.GONE
         holder.magicButton.setOnClickListener {
             val position = holder.currentDataPosition()
-            if (position != RecyclerView.NO_POSITION) {
+            if (showMagicControls && position != RecyclerView.NO_POSITION) {
                 onMagicClick(position)
             }
         }

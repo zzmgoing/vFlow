@@ -56,6 +56,8 @@ import com.chaomixian.vflow.core.workflow.module.logic.ForEachModule
 import com.chaomixian.vflow.core.workflow.module.logic.LOOP_PAIRING_ID
 import com.chaomixian.vflow.core.workflow.module.logic.LOOP_START_ID
 import com.chaomixian.vflow.core.workflow.module.logic.LoopModule
+import com.chaomixian.vflow.core.workflow.module.logic.MENU_START_ID
+import com.chaomixian.vflow.core.workflow.module.logic.MenuBlockSupport
 import com.chaomixian.vflow.permissions.PermissionActivity
 import com.chaomixian.vflow.permissions.PermissionManager
 import com.chaomixian.vflow.ui.app_picker.AppPickerMode
@@ -896,9 +898,11 @@ class WorkflowEditorActivity : BaseActivity() {
                 } else {
                     actionSteps[position] = actionSteps[position].copy(parameters = newStepData.parameters)
                 }
+                syncDynamicBlockAfterSave(module, position)
                 // 在保存后，检查并处理变量重命名
                 handleVariableNameChange(position)
             } else {
+                val startPosition = actionSteps.size
                 val stepsToAdd = module.createSteps()
                 if (targetIndex > 0 && targetIndex < stepsToAdd.size) {
                     val configuredSteps = stepsToAdd.toMutableList()
@@ -910,6 +914,7 @@ class WorkflowEditorActivity : BaseActivity() {
                     if (stepsToAdd.size > 1) {
                         actionSteps.addAll(stepsToAdd.subList(1, stepsToAdd.size))
                     }
+                    syncDynamicBlockAfterSave(module, startPosition)
                 }
             }
             recalculateAndNotify()
@@ -938,6 +943,12 @@ class WorkflowEditorActivity : BaseActivity() {
         }
 
         editor.show(supportFragmentManager, "ActionEditor")
+    }
+
+    private fun syncDynamicBlockAfterSave(module: ActionModule, startPosition: Int) {
+        if (module.id == MENU_START_ID) {
+            MenuBlockSupport.reconcileBranches(actionSteps, startPosition)
+        }
     }
 
     private fun showTriggerEditor(module: ActionModule, existingStep: ActionStep?, position: Int, focusedInputId: String?) {
@@ -1772,6 +1783,7 @@ class WorkflowEditorActivity : BaseActivity() {
                     actionSteps.addAll(insertPosition + 1, stepsToAdd.subList(1, stepsToAdd.size))
                 }
             }
+            syncDynamicBlockAfterSave(module, insertPosition)
             recalculateAndNotify()
         }
 

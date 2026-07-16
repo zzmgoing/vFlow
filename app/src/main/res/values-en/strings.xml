@@ -359,7 +359,7 @@
     <string name="workflow_list_sort_name">Name order</string>
     <string name="workflow_list_sort_recent_modified">Recently modified</string>
     <string name="workflow_list_sort_favorites_first">Favorites first</string>
-    <string name="workflow_list_menu_grid_view">Grid view</string>
+    <string name="workflow_list_menu_grid_view">Compact view</string>
     <string name="workflow_list_menu_list_view">List view</string>
     <string name="workflow_list_menu_backup_all">Back Up All Workflows</string>
     <string name="workflow_list_menu_import_restore">Import/Restore Workflows</string>
@@ -874,6 +874,7 @@
     <string name="text_turned_on">Turned On</string>
     <string name="text_turned_off">Turned Off</string>
     <string name="text_add_new_item">Add New Item</string>
+    <string name="overlay_ui_menu_choice_title">Choose an Option</string>
     <string name="button_click_select_image">Click to Select Image</string>
     <string name="text_workflow_to_call">Workflow to Call</string>
     <string name="text_select_image_to_find">Select Image to Find on Screen</string>

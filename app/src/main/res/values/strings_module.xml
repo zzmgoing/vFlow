@@ -1952,6 +1952,26 @@
     <string name="param_vflow_logic_if_start_value2_name">比较值 2</string>
     <string name="output_vflow_logic_if_start_result_name">条件结果</string>
 
+    <!-- vflow.logic.menu -->
+    <string name="module_vflow_logic_menu_start_desc">显示菜单，并执行所选项目对应的操作</string>
+    <string name="module_vflow_logic_menu_start_name">从菜单中选取</string>
+    <string name="param_vflow_logic_menu_start_prompt_name">提示</string>
+    <string name="param_vflow_logic_menu_start_items_name">菜单项目</string>
+    <string name="output_vflow_logic_menu_start_selected_item_name">所选项目</string>
+    <string name="output_vflow_logic_menu_start_selected_item_id_name">所选项目 ID</string>
+    <string name="module_vflow_logic_menu_item_desc">所选菜单项目的操作</string>
+    <string name="module_vflow_logic_menu_item_name">菜单项目</string>
+    <string name="module_vflow_logic_menu_end_desc">菜单块的结束点</string>
+    <string name="module_vflow_logic_menu_end_name">结束菜单</string>
+
+    <!-- vflow.logic.list.choose -->
+    <string name="module_vflow_logic_list_choose_desc">从传入列表中选择一个项目</string>
+    <string name="module_vflow_logic_list_choose_name">从列表中选取</string>
+    <string name="param_vflow_logic_list_choose_prompt_name">提示</string>
+    <string name="param_vflow_logic_list_choose_items_name">列表</string>
+    <string name="output_vflow_logic_list_choose_selected_item_name">所选项目</string>
+    <string name="output_vflow_logic_list_choose_selected_index_name">所选索引</string>
+
     <!-- vflow.logic.jump -->
     <string name="module_vflow_logic_jump_desc">跳转到工作流的指定步骤并继续执行</string>
     <string name="module_vflow_logic_jump_name">跳转到步骤</string>
@@ -3106,6 +3126,10 @@
     <string name="summary_vflow_logic_and">并且</string>
     <string name="summary_vflow_logic_between">之间</string>
     <string name="summary_vflow_logic_else">否则</string>
+    <string name="summary_vflow_logic_menu_prefix">从包含</string>
+    <string name="summary_vflow_logic_menu_suffix">的菜单中选取</string>
+    <string name="summary_vflow_logic_list_choose_prefix">从列表</string>
+    <string name="summary_vflow_logic_list_choose_suffix">中选取</string>
     <string name="summary_vflow_logic_loop_prefix">循环</string>
     <string name="summary_vflow_logic_loop_suffix">次</string>
     <string name="summary_vflow_logic_stop_and_return_prefix">返回</string>

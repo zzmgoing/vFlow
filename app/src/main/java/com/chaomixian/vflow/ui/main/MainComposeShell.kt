@@ -16,6 +16,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,6 +48,8 @@ import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -233,127 +237,147 @@ private fun MainScreen(
         chatSideSheetVisible = false
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        if (selectedTab == MainTopLevelTab.CHAT) {
-                            ChatTopBarTitle(
-                                uiState = chatUiState,
-                                onSelectPreset = chatViewModel::selectPreset,
-                            )
-                        } else {
-                            Text(
-                                stringResource(selectedTab.titleRes),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    },
-                    actions = {
-                        if (selectedTab == MainTopLevelTab.WORKFLOWS) {
-                            WorkflowTopBarActions(
-                                sortMode = workflowSortMode,
-                                layoutMode = workflowLayoutMode,
-                                onAction = { action ->
-                                    workflowSortMode = when (action) {
-                                        WorkflowTopBarAction.SortDefault -> WorkflowSortMode.Default
-                                        WorkflowTopBarAction.SortByName -> WorkflowSortMode.Name
-                                        WorkflowTopBarAction.SortByRecentModified -> WorkflowSortMode.RecentModified
-                                        WorkflowTopBarAction.SortFavoritesFirst -> WorkflowSortMode.FavoritesFirst
-                                        else -> workflowSortMode
-                                    }
-                                    if (action == WorkflowTopBarAction.ToggleLayoutMode) {
-                                        workflowLayoutMode = when (workflowLayoutMode) {
-                                            WorkflowLayoutMode.List -> WorkflowLayoutMode.Grid
-                                            WorkflowLayoutMode.Grid -> WorkflowLayoutMode.List
-                                        }
-                                    }
-                                    latestWorkflowAction = action
-                                    workflowActionVersion += 1
-                                }
-                            )
-                        } else if (selectedTab == MainTopLevelTab.CHAT) {
-                            ChatTopBarActions(
-                                onAction = { action ->
-                                    when (action) {
-                                        ChatTopBarAction.NewConversation -> {
-                                            chatViewModel.newConversation()
-                                            chatDraftResetVersion += 1
-                                            chatSideSheetVisible = false
-                                        }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val useNavigationRail = maxWidth >= 840.dp && maxWidth > maxHeight
+        val wideContentMaxWidth = if (maxHeight < 600.dp) 680.dp else 960.dp
 
-                                        ChatTopBarAction.ToggleSideSheet -> {
-                                            chatSideSheetVisible = !chatSideSheetVisible
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-                )
-            },
-            bottomBar = {
-                if (liquidGlassEnabled) {
-                    LiquidGlassBottomBarContainer(
-                        selectedTab = selectedTab,
-                        onTabSelected = { mainPagerState.animateToPage(it.ordinal) },
-                        backdrop = backdrop,
-                    )
-                } else {
-                    StandardBottomBar(
+        Box(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                if (useNavigationRail) {
+                    WideNavigationRail(
                         selectedTab = selectedTab,
                         onTabSelected = { mainPagerState.animateToPage(it.ordinal) },
                     )
                 }
-            }
-        ) { innerPadding ->
-            MainContentPager(
-                isReady = isReady,
-                pagerState = mainPagerState.pagerState,
-                selectedPage = mainPagerState.selectedPage,
-                innerPadding = innerPadding,
-                liquidGlassEnabled = liquidGlassEnabled,
-                backdrop = backdrop,
-                loadedPages = loadedPages,
-                activity = activity,
-                workflowSortMode = workflowSortMode,
-                workflowLayoutMode = workflowLayoutMode,
-                workflowAction = latestWorkflowAction,
-                workflowActionVersion = workflowActionVersion,
-                chatDraftResetVersion = chatDraftResetVersion,
-                chatViewModel = chatViewModel,
-            )
-        }
 
-        if (selectedTab == MainTopLevelTab.CHAT) {
-            val context = LocalContext.current
-            ChatHistorySideSheet(
-                visible = chatSideSheetVisible,
-                uiState = chatUiState,
-                onDismiss = { chatSideSheetVisible = false },
-                onNewConversation = {
-                    chatViewModel.newConversation()
-                    chatDraftResetVersion += 1
-                    chatSideSheetVisible = false
-                },
-                onSelectConversation = { conversationId ->
-                    chatViewModel.selectConversation(conversationId)
-                    chatSideSheetVisible = false
-                },
-                onDeleteConversation = { conversationId ->
-                    val title = chatUiState.conversations.find { it.id == conversationId }?.title.orEmpty()
-                    MaterialAlertDialogBuilder(context)
-                        .setTitle(R.string.dialog_delete_title)
-                        .setMessage(context.getString(R.string.chat_delete_conversation_message, title))
-                        .setNegativeButton(R.string.common_cancel, null)
-                        .setPositiveButton(R.string.common_delete) { _, _ ->
-                            chatViewModel.deleteConversation(conversationId)
+                Scaffold(
+                    modifier = Modifier.weight(1f),
+                    topBar = {
+                        TopAppBar(
+                            title = {
+                                if (selectedTab == MainTopLevelTab.CHAT) {
+                                    ChatTopBarTitle(
+                                        uiState = chatUiState,
+                                        onSelectPreset = chatViewModel::selectPreset,
+                                    )
+                                } else {
+                                    Text(
+                                        stringResource(selectedTab.titleRes),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            },
+                            actions = {
+                                if (selectedTab == MainTopLevelTab.WORKFLOWS) {
+                                    WorkflowTopBarActions(
+                                        sortMode = workflowSortMode,
+                                        layoutMode = workflowLayoutMode,
+                                        showLayoutModeToggle = !useNavigationRail,
+                                        onAction = { action ->
+                                            workflowSortMode = when (action) {
+                                                WorkflowTopBarAction.SortDefault -> WorkflowSortMode.Default
+                                                WorkflowTopBarAction.SortByName -> WorkflowSortMode.Name
+                                                WorkflowTopBarAction.SortByRecentModified -> WorkflowSortMode.RecentModified
+                                                WorkflowTopBarAction.SortFavoritesFirst -> WorkflowSortMode.FavoritesFirst
+                                                else -> workflowSortMode
+                                            }
+                                            if (action == WorkflowTopBarAction.ToggleLayoutMode) {
+                                                workflowLayoutMode = when (workflowLayoutMode) {
+                                                    WorkflowLayoutMode.List -> WorkflowLayoutMode.Grid
+                                                    WorkflowLayoutMode.Grid -> WorkflowLayoutMode.List
+                                                }
+                                            }
+                                            latestWorkflowAction = action
+                                            workflowActionVersion += 1
+                                        }
+                                    )
+                                } else if (selectedTab == MainTopLevelTab.CHAT) {
+                                    ChatTopBarActions(
+                                        onAction = { action ->
+                                            when (action) {
+                                                ChatTopBarAction.NewConversation -> {
+                                                    chatViewModel.newConversation()
+                                                    chatDraftResetVersion += 1
+                                                    chatSideSheetVisible = false
+                                                }
+
+                                                ChatTopBarAction.ToggleSideSheet -> {
+                                                    chatSideSheetVisible = !chatSideSheetVisible
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        )
+                    },
+                    bottomBar = {
+                        if (!useNavigationRail) {
+                            if (liquidGlassEnabled) {
+                                LiquidGlassBottomBarContainer(
+                                    selectedTab = selectedTab,
+                                    onTabSelected = { mainPagerState.animateToPage(it.ordinal) },
+                                    backdrop = backdrop,
+                                )
+                            } else {
+                                StandardBottomBar(
+                                    selectedTab = selectedTab,
+                                    onTabSelected = { mainPagerState.animateToPage(it.ordinal) },
+                                )
+                            }
                         }
-                        .show()
-                },
-            )
+                    }
+                ) { innerPadding ->
+                    MainContentPager(
+                        isReady = isReady,
+                        pagerState = mainPagerState.pagerState,
+                        selectedPage = mainPagerState.selectedPage,
+                        innerPadding = innerPadding,
+                        liquidGlassEnabled = liquidGlassEnabled,
+                        useNavigationRail = useNavigationRail,
+                        wideContentMaxWidth = wideContentMaxWidth,
+                        backdrop = backdrop,
+                        loadedPages = loadedPages,
+                        activity = activity,
+                        workflowSortMode = workflowSortMode,
+                        workflowLayoutMode = workflowLayoutMode,
+                        workflowAction = latestWorkflowAction,
+                        workflowActionVersion = workflowActionVersion,
+                        chatDraftResetVersion = chatDraftResetVersion,
+                        chatViewModel = chatViewModel,
+                    )
+                }
+            }
+
+            if (selectedTab == MainTopLevelTab.CHAT) {
+                val context = LocalContext.current
+                ChatHistorySideSheet(
+                    visible = chatSideSheetVisible,
+                    uiState = chatUiState,
+                    onDismiss = { chatSideSheetVisible = false },
+                    onNewConversation = {
+                        chatViewModel.newConversation()
+                        chatDraftResetVersion += 1
+                        chatSideSheetVisible = false
+                    },
+                    onSelectConversation = { conversationId ->
+                        chatViewModel.selectConversation(conversationId)
+                        chatSideSheetVisible = false
+                    },
+                    onDeleteConversation = { conversationId ->
+                        val title = chatUiState.conversations.find { it.id == conversationId }?.title.orEmpty()
+                        MaterialAlertDialogBuilder(context)
+                            .setTitle(R.string.dialog_delete_title)
+                            .setMessage(context.getString(R.string.chat_delete_conversation_message, title))
+                            .setNegativeButton(R.string.common_cancel, null)
+                            .setPositiveButton(R.string.common_delete) { _, _ ->
+                                chatViewModel.deleteConversation(conversationId)
+                            }
+                            .show()
+                    },
+                )
+            }
         }
     }
 }
@@ -363,6 +387,7 @@ private fun MainScreen(
 private fun WorkflowTopBarActions(
     sortMode: WorkflowSortMode,
     layoutMode: WorkflowLayoutMode,
+    showLayoutModeToggle: Boolean,
     onAction: (WorkflowTopBarAction) -> Unit,
 ) {
     var overflowExpanded by remember { mutableStateOf(false) }
@@ -460,22 +485,25 @@ private fun WorkflowTopBarActions(
                 shapes = MenuDefaults.groupShape(index = 0, count = 1),
                 containerColor = MenuDefaults.groupStandardContainerColor,
             ) {
-                WorkflowActionMenuItem(
-                    text = stringResource(
-                        if (layoutMode == WorkflowLayoutMode.List) R.string.workflow_list_menu_grid_view
-                        else R.string.workflow_list_menu_list_view
-                    ),
-                    index = 0,
-                    count = 4,
-                    onClick = {
-                        overflowExpanded = false
-                        onAction(WorkflowTopBarAction.ToggleLayoutMode)
-                    }
-                )
+                val layoutModeMenuOffset = if (showLayoutModeToggle) 1 else 0
+                if (showLayoutModeToggle) {
+                    WorkflowActionMenuItem(
+                        text = stringResource(
+                            if (layoutMode == WorkflowLayoutMode.List) R.string.workflow_list_menu_grid_view
+                            else R.string.workflow_list_menu_list_view
+                        ),
+                        index = 0,
+                        count = 4,
+                        onClick = {
+                            overflowExpanded = false
+                            onAction(WorkflowTopBarAction.ToggleLayoutMode)
+                        }
+                    )
+                }
                 WorkflowActionMenuItem(
                     text = stringResource(R.string.folder_create),
-                    index = 1,
-                    count = 4,
+                    index = layoutModeMenuOffset,
+                    count = 3 + layoutModeMenuOffset,
                     onClick = {
                         overflowExpanded = false
                         onAction(WorkflowTopBarAction.CreateFolder)
@@ -483,8 +511,8 @@ private fun WorkflowTopBarActions(
                 )
                 WorkflowActionMenuItem(
                     text = stringResource(R.string.workflow_list_menu_backup_all),
-                    index = 2,
-                    count = 4,
+                    index = 1 + layoutModeMenuOffset,
+                    count = 3 + layoutModeMenuOffset,
                     onClick = {
                         overflowExpanded = false
                         onAction(WorkflowTopBarAction.BackupWorkflows)
@@ -492,8 +520,8 @@ private fun WorkflowTopBarActions(
                 )
                 WorkflowActionMenuItem(
                     text = stringResource(R.string.workflow_list_menu_import_restore),
-                    index = 3,
-                    count = 4,
+                    index = 2 + layoutModeMenuOffset,
+                    count = 3 + layoutModeMenuOffset,
                     onClick = {
                         overflowExpanded = false
                         onAction(WorkflowTopBarAction.ImportWorkflows)
@@ -844,6 +872,38 @@ private fun StandardBottomBar(
 }
 
 @Composable
+private fun WideNavigationRail(
+    selectedTab: MainTopLevelTab,
+    onTabSelected: (MainTopLevelTab) -> Unit,
+) {
+    NavigationRail(
+        modifier = Modifier.fillMaxHeight().width(88.dp),
+    ) {
+        Spacer(modifier = Modifier.height(12.dp))
+        MainTopLevelTab.entries.forEach { tab ->
+            val selected = selectedTab == tab
+            NavigationRailItem(
+                selected = selected,
+                onClick = { if (!selected) onTabSelected(tab) },
+                icon = {
+                    Icon(
+                        painter = painterResource(if (selected) tab.selectedIconRes else tab.unselectedIconRes),
+                        contentDescription = stringResource(tab.titleRes)
+                    )
+                },
+                label = {
+                    Text(
+                        text = stringResource(tab.titleRes),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
 private fun LiquidGlassBottomBarContainer(
     selectedTab: MainTopLevelTab,
     onTabSelected: (MainTopLevelTab) -> Unit,
@@ -900,6 +960,8 @@ private fun MainContentPager(
     selectedPage: Int,
     innerPadding: PaddingValues,
     liquidGlassEnabled: Boolean,
+    useNavigationRail: Boolean,
+    wideContentMaxWidth: androidx.compose.ui.unit.Dp,
     backdrop: LayerBackdrop,
     loadedPages: List<Int>,
     workflowSortMode: WorkflowSortMode,
@@ -931,42 +993,55 @@ private fun MainContentPager(
         userScrollEnabled = false,
     ) { page ->
         val tab = MainTopLevelTab.entries[page]
-        when (tab) {
-            MainTopLevelTab.HOME -> HomeScreen(
-                isActive = selectedPage == page,
-                bottomContentPadding = innerPadding.calculateBottomPadding(),
-                modifier = Modifier.fillMaxSize(),
-            )
+        Box(modifier = Modifier.fillMaxSize()) {
+            val contentModifier = if (useNavigationRail) {
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .widthIn(max = wideContentMaxWidth)
+                    .fillMaxSize()
+            } else {
+                Modifier.fillMaxSize()
+            }
+            val workflowContentModifier = Modifier.fillMaxSize()
 
-            MainTopLevelTab.WORKFLOWS -> WorkflowListRoute(
-                activity = activity,
-                isActive = selectedPage == page,
-                workflowSortMode = workflowSortMode,
-                workflowLayoutMode = workflowLayoutMode,
-                workflowAction = workflowAction,
-                workflowActionVersion = workflowActionVersion,
-                extraBottomPadding = innerPadding.calculateBottomPadding(),
-                modifier = Modifier.fillMaxSize(),
-            )
+            when (tab) {
+                MainTopLevelTab.HOME -> HomeScreen(
+                    isActive = selectedPage == page,
+                    bottomContentPadding = innerPadding.calculateBottomPadding(),
+                    modifier = contentModifier,
+                )
 
-            MainTopLevelTab.REPOSITORY -> RepositoryScreen(
-                modifier = Modifier.fillMaxSize(),
-                bottomContentPadding = innerPadding.calculateBottomPadding(),
-                isActive = selectedPage == page,
-            )
+                MainTopLevelTab.WORKFLOWS -> WorkflowListRoute(
+                    activity = activity,
+                    isActive = selectedPage == page,
+                    workflowSortMode = workflowSortMode,
+                    workflowLayoutMode = workflowLayoutMode,
+                    workflowAction = workflowAction,
+                    workflowActionVersion = workflowActionVersion,
+                    extraBottomPadding = innerPadding.calculateBottomPadding(),
+                    isWideLayout = useNavigationRail,
+                    modifier = workflowContentModifier,
+                )
 
-            MainTopLevelTab.CHAT -> ChatScreen(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = innerPadding.calculateBottomPadding()),
-                newConversationVersion = chatDraftResetVersion,
-                chatViewModel = chatViewModel,
-            )
+                MainTopLevelTab.REPOSITORY -> RepositoryScreen(
+                    modifier = contentModifier,
+                    bottomContentPadding = innerPadding.calculateBottomPadding(),
+                    isActive = selectedPage == page,
+                )
 
-            MainTopLevelTab.SETTINGS -> SettingsRoute(
-                activity = activity,
-                extraBottomContentPadding = innerPadding.calculateBottomPadding(),
-                modifier = Modifier.fillMaxSize(),
-            )
+                MainTopLevelTab.CHAT -> ChatScreen(
+                    modifier = contentModifier,
+                    contentPadding = PaddingValues(bottom = innerPadding.calculateBottomPadding()),
+                    newConversationVersion = chatDraftResetVersion,
+                    chatViewModel = chatViewModel,
+                )
+
+                MainTopLevelTab.SETTINGS -> SettingsRoute(
+                    activity = activity,
+                    extraBottomContentPadding = innerPadding.calculateBottomPadding(),
+                    modifier = contentModifier,
+                )
+            }
         }
     }
 }

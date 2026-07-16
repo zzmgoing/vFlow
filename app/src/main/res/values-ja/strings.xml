@@ -341,7 +341,7 @@
     <string name="workflow_list_sort_name">名前の並べ替え</string>
     <string name="workflow_list_sort_recent_modified">最近変更された</string>
     <string name="workflow_list_sort_favorites_first">まずはコレクション</string>
-    <string name="workflow_list_menu_grid_view">2カラムレイアウト</string>
+    <string name="workflow_list_menu_grid_view">コンパクトレイアウト</string>
     <string name="workflow_list_menu_list_view">リストのレイアウト</string>
     <string name="workflow_list_menu_backup_all">すべてのワークフローをバックアップする</string>
     <string name="workflow_list_menu_import_restore">インポート/復元のワークフロー</string>
@@ -818,6 +818,7 @@
     <string name="text_turned_on">オンにした場合</string>
     <string name="text_turned_off">閉じたとき</string>
     <string name="text_add_new_item">新しいアイテムを追加</string>
+    <string name="overlay_ui_menu_choice_title">選択してください</string>
     <string name="button_click_select_image">クリックして画像を選択してください</string>
     <string name="text_workflow_to_call">呼び出すワークフロー</string>
     <string name="text_select_image_to_find">画面上で探したい写真を選択します</string>

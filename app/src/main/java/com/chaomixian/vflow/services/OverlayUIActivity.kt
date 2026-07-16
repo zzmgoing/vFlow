@@ -158,6 +158,14 @@ class OverlayUIActivity : AppCompatActivity() {
                     else -> showTextInputDialog(title ?: getString(R.string.overlay_ui_input_text_title), inputType)
                 }
             }
+            "menu_choice" -> {
+                val choices = intent.getStringArrayListExtra("menu_choices")
+                if (choices.isNullOrEmpty()) {
+                    finishWithError()
+                } else {
+                    showMenuChoiceDialog(title ?: getString(R.string.overlay_ui_menu_choice_title), choices)
+                }
+            }
             SpeechToTextOverlayContract.REQUEST_TYPE -> handleSpeechToTextRequest(title)
             "pick_image" -> {
                 pickImageLauncher.launch(
@@ -641,6 +649,14 @@ class OverlayUIActivity : AppCompatActivity() {
             onSelected = { complete(it.id) },
             onCancelled = { cancel() }
         )
+    }
+
+    private fun showMenuChoiceDialog(title: String, choices: List<String>) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setItems(choices.toTypedArray()) { _, index -> complete(index) }
+            .setOnCancelListener { cancel() }
+            .show()
     }
 
     /**
