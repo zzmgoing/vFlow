@@ -512,12 +512,18 @@ private fun TemplateEditorScreen(
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
-                        onClick = { canvasView?.mode = HiddenObjectTemplateCanvasView.Mode.SCENE_REGION; showMessage("请拖动框选场景区域") },
+                        onClick = {
+                            canvasView?.mode = HiddenObjectTemplateCanvasView.Mode.SCENE_REGION
+                            showMessage("拖动框内部可移动，拖动控制点可缩放，框外拖动可重新框选")
+                        },
                         enabled = bitmap != null,
                         modifier = Modifier.weight(1f),
                     ) { Text("框选场景") }
                     OutlinedButton(
-                        onClick = { canvasView?.mode = HiddenObjectTemplateCanvasView.Mode.LABEL_REGION; showMessage("请拖动框选名称区域") },
+                        onClick = {
+                            canvasView?.mode = HiddenObjectTemplateCanvasView.Mode.LABEL_REGION
+                            showMessage("拖动框内部可移动，拖动控制点可缩放，框外拖动可重新框选")
+                        },
                         enabled = bitmap != null,
                         modifier = Modifier.weight(1f),
                     ) { Text("框选名称区") }

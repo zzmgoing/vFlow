@@ -13,6 +13,9 @@ import android.view.ViewConfiguration
 
 internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) {
     enum class Mode { NONE, SCENE_REGION, LABEL_REGION, ITEM_POINT }
+    private enum class RegionDrag {
+        CREATE, MOVE, LEFT, TOP, RIGHT, BOTTOM, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT,
+    }
 
     var bitmap: Bitmap? = null
         set(value) {
@@ -27,6 +30,14 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
     var template: HiddenObjectTemplate? = null
         set(value) { field = value; invalidate() }
     var mode: Mode = Mode.NONE
+        set(value) {
+            field = value
+            draftRect = null
+            regionStartRect = null
+            regionDrag = null
+            draggingItemId = null
+            invalidate()
+        }
     var onRegionSelected: ((Mode, NormalizedRect) -> Unit)? = null
     var onItemPointSelected: ((Float, Float) -> Unit)? = null
     var onItemPointChanged: ((String, Float, Float) -> Unit)? = null
@@ -34,6 +45,19 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
     private val regionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 5f
+    }
+    private val regionFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0x332196F3
+    }
+    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+    }
+    private val handleBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = resources.displayMetrics.density * 2f
+        color = Color.MAGENTA
     }
     private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.YELLOW
@@ -52,6 +76,9 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
     }
     private val markerRadius = resources.displayMetrics.density * 17f
     private val markerHitRadius = resources.displayMetrics.density * 28f
+    private val regionHandleRadius = resources.displayMetrics.density * 7f
+    private val regionHandleHitRadius = resources.displayMetrics.density * 24f
+    private val minimumRegionSize = resources.displayMetrics.density * 32f
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var startX = 0f
     private var startY = 0f
@@ -61,6 +88,8 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
     private var scaledDuringGesture = false
     private var draggingItemId: String? = null
     private var draftRect: RectF? = null
+    private var regionStartRect: RectF? = null
+    private var regionDrag: RegionDrag? = null
     private var zoom = 1f
     private var panX = 0f
     private var panY = 0f
@@ -71,6 +100,8 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
                 scaledDuringGesture = true
                 draggingItemId = null
                 draftRect = null
+                regionStartRect = null
+                regionDrag = null
                 return true
             }
 
@@ -134,10 +165,15 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
                 val baseline = y - (markerTextPaint.ascent() + markerTextPaint.descent()) / 2f
                 canvas.drawText((index + 1).toString(), x, baseline, markerTextPaint)
             }
-        }
-        draftRect?.let {
-            regionPaint.color = Color.MAGENTA
-            canvas.drawRect(it, regionPaint)
+            activeRegionRect(value, target)?.let { rect ->
+                canvas.drawRect(rect, regionFillPaint)
+                regionPaint.color = Color.MAGENTA
+                canvas.drawRect(rect, regionPaint)
+                regionHandles(rect).forEach { (x, y) ->
+                    canvas.drawCircle(x, y, regionHandleRadius, handlePaint)
+                    canvas.drawCircle(x, y, regionHandleRadius, handleBorderPaint)
+                }
+            }
         }
     }
 
@@ -161,7 +197,14 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
                 draggingItemId = if (mode == Mode.NONE || mode == Mode.ITEM_POINT) findItemAt(event.x, event.y, target) else null
                 parent?.requestDisallowInterceptTouchEvent(zoom > 1f || mode != Mode.NONE || draggingItemId != null)
                 if (mode == Mode.SCENE_REGION || mode == Mode.LABEL_REGION) {
-                    draftRect = RectF(startX, startY, startX, startY)
+                    val current = currentRegionRect(target)
+                    regionStartRect = RectF(current)
+                    regionDrag = detectRegionDrag(current, event.x, event.y)
+                    draftRect = if (regionDrag == RegionDrag.CREATE) {
+                        RectF(startX, startY, startX, startY)
+                    } else {
+                        RectF(current)
+                    }
                 }
                 invalidate()
             }
@@ -170,7 +213,7 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
                 val distanceY = event.y - startY
                 if (distanceX * distanceX + distanceY * distanceY > touchSlop * touchSlop) moved = true
                 if (mode == Mode.SCENE_REGION || mode == Mode.LABEL_REGION) {
-                    draftRect = RectF(startX, startY, event.x, event.y).sorted()
+                    draftRect = updateRegionRect(target, event.x, event.y)
                     invalidate()
                 } else if (draggingItemId != null) {
                     updateDraggedItem(event.x, event.y, target)
@@ -197,7 +240,7 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
                 } else if (draggingItemId != null) {
                     updateDraggedItem(event.x, event.y, target)
                 } else if ((mode == Mode.SCENE_REGION || mode == Mode.LABEL_REGION) && !scaledDuringGesture) {
-                    val rect = RectF(startX, startY, event.x, event.y).sorted()
+                    val rect = (draftRect ?: currentRegionRect(target)).sorted()
                     if (rect.width() > 20f && rect.height() > 20f) {
                         onRegionSelected?.invoke(
                             mode,
@@ -212,12 +255,16 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
                     }
                 }
                 draftRect = null
+                regionStartRect = null
+                regionDrag = null
                 draggingItemId = null
                 parent?.requestDisallowInterceptTouchEvent(false)
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
                 draftRect = null
+                regionStartRect = null
+                regionDrag = null
                 draggingItemId = null
                 parent?.requestDisallowInterceptTouchEvent(false)
                 invalidate()
@@ -248,6 +295,96 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
         val maxPanY = (base.height() * (zoom - 1f) / 2f).coerceAtLeast(0f)
         panX = panX.coerceIn(-maxPanX, maxPanX)
         panY = panY.coerceIn(-maxPanY, maxPanY)
+    }
+
+    private fun activeRegionRect(value: HiddenObjectTemplate, imageRect: RectF): RectF? = when (mode) {
+        Mode.SCENE_REGION -> draftRect ?: value.sceneRegion.toViewRect(imageRect)
+        Mode.LABEL_REGION -> draftRect ?: value.labelRegion.toViewRect(imageRect)
+        else -> null
+    }
+
+    private fun currentRegionRect(imageRect: RectF): RectF {
+        val value = requireNotNull(template)
+        return when (mode) {
+            Mode.SCENE_REGION -> value.sceneRegion.toViewRect(imageRect)
+            Mode.LABEL_REGION -> value.labelRegion.toViewRect(imageRect)
+            else -> RectF()
+        }
+    }
+
+    private fun regionHandles(rect: RectF): List<Pair<Float, Float>> = listOf(
+        rect.left to rect.top,
+        rect.centerX() to rect.top,
+        rect.right to rect.top,
+        rect.right to rect.centerY(),
+        rect.right to rect.bottom,
+        rect.centerX() to rect.bottom,
+        rect.left to rect.bottom,
+        rect.left to rect.centerY(),
+    )
+
+    private fun detectRegionDrag(rect: RectF, x: Float, y: Float): RegionDrag {
+        fun near(pointX: Float, pointY: Float): Boolean {
+            val dx = x - pointX
+            val dy = y - pointY
+            return dx * dx + dy * dy <= regionHandleHitRadius * regionHandleHitRadius
+        }
+        return when {
+            near(rect.left, rect.top) -> RegionDrag.TOP_LEFT
+            near(rect.right, rect.top) -> RegionDrag.TOP_RIGHT
+            near(rect.left, rect.bottom) -> RegionDrag.BOTTOM_LEFT
+            near(rect.right, rect.bottom) -> RegionDrag.BOTTOM_RIGHT
+            near(rect.centerX(), rect.top) -> RegionDrag.TOP
+            near(rect.right, rect.centerY()) -> RegionDrag.RIGHT
+            near(rect.centerX(), rect.bottom) -> RegionDrag.BOTTOM
+            near(rect.left, rect.centerY()) -> RegionDrag.LEFT
+            rect.contains(x, y) -> RegionDrag.MOVE
+            else -> RegionDrag.CREATE
+        }
+    }
+
+    private fun updateRegionRect(imageRect: RectF, x: Float, y: Float): RectF {
+        val drag = regionDrag ?: RegionDrag.CREATE
+        if (drag == RegionDrag.CREATE) {
+            return RectF(
+                startX.coerceIn(imageRect.left, imageRect.right),
+                startY.coerceIn(imageRect.top, imageRect.bottom),
+                x.coerceIn(imageRect.left, imageRect.right),
+                y.coerceIn(imageRect.top, imageRect.bottom),
+            ).sorted()
+        }
+
+        val original = regionStartRect ?: currentRegionRect(imageRect)
+        if (drag == RegionDrag.MOVE) {
+            val dx = (x - startX).coerceIn(imageRect.left - original.left, imageRect.right - original.right)
+            val dy = (y - startY).coerceIn(imageRect.top - original.top, imageRect.bottom - original.bottom)
+            return RectF(original).apply { offset(dx, dy) }
+        }
+
+        val result = RectF(original)
+        when (drag) {
+            RegionDrag.LEFT, RegionDrag.TOP_LEFT, RegionDrag.BOTTOM_LEFT -> {
+                val minWidth = minimumRegionSize.coerceAtMost(original.right - imageRect.left)
+                result.left = x.coerceIn(imageRect.left, original.right - minWidth)
+            }
+            RegionDrag.RIGHT, RegionDrag.TOP_RIGHT, RegionDrag.BOTTOM_RIGHT -> {
+                val minWidth = minimumRegionSize.coerceAtMost(imageRect.right - original.left)
+                result.right = x.coerceIn(original.left + minWidth, imageRect.right)
+            }
+            else -> Unit
+        }
+        when (drag) {
+            RegionDrag.TOP, RegionDrag.TOP_LEFT, RegionDrag.TOP_RIGHT -> {
+                val minHeight = minimumRegionSize.coerceAtMost(original.bottom - imageRect.top)
+                result.top = y.coerceIn(imageRect.top, original.bottom - minHeight)
+            }
+            RegionDrag.BOTTOM, RegionDrag.BOTTOM_LEFT, RegionDrag.BOTTOM_RIGHT -> {
+                val minHeight = minimumRegionSize.coerceAtMost(imageRect.bottom - original.top)
+                result.bottom = y.coerceIn(original.top + minHeight, imageRect.bottom)
+            }
+            else -> Unit
+        }
+        return result
     }
 
     private fun findItemAt(x: Float, y: Float, imageRect: RectF): String? {
