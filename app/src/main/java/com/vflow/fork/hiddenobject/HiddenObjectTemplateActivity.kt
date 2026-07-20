@@ -2,12 +2,19 @@ package com.vflow.fork.hiddenobject
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,7 +69,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -315,7 +327,9 @@ private fun TemplateCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+            if (template.referenceImagePath != null) {
+                TemplateThumbnail(template.referenceImagePath)
+            } else Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
                 Text(
                     text = template.items.size.toString(),
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -402,10 +416,19 @@ private fun TemplateEditorScreen(
             runCatching {
                 withContext(Dispatchers.IO) {
                     val target = repository.referenceImageFile(template.id)
-                    context.contentResolver.openInputStream(uri)!!.use { input -> FileOutputStream(target).use(input::copyTo) }
+                    val temporary = java.io.File(target.parentFile, "${target.name}.tmp")
+                    context.contentResolver.openInputStream(uri)!!.use { input -> FileOutputStream(temporary).use(input::copyTo) }
                     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(target.absolutePath, options)
-                    check(options.outWidth > 0 && options.outHeight > 0) { "无法读取图片" }
+                    BitmapFactory.decodeFile(temporary.absolutePath, options)
+                    if (options.outWidth <= 0 || options.outHeight <= 0) {
+                        temporary.delete()
+                        error("无法读取图片")
+                    }
+                    check(temporary.renameTo(target) || run {
+                        temporary.copyTo(target, overwrite = true)
+                        temporary.delete()
+                        true
+                    })
                     template.copy(referenceWidth = options.outWidth, referenceHeight = options.outHeight, referenceImagePath = target.absolutePath)
                 }
             }.onSuccess { value ->
@@ -549,6 +572,8 @@ private fun TemplateEditorScreen(
                             ItemCard(
                                 sequence = index + 1,
                                 item = item,
+                                template = template,
+                                bitmap = bitmap,
                                 onEdit = { itemDraft = ItemDraft(item.id, item.name, item.aliases.joinToString("，"), item.normalizedX.toString(), item.normalizedY.toString()) },
                                 onDelete = { update(template.copy(items = template.items.filterNot { value -> value.id == item.id })) },
                             )
@@ -603,17 +628,35 @@ private fun SectionCard(title: String, description: String, content: @Composable
 }
 
 @Composable
-private fun ItemCard(sequence: Int, item: HiddenObjectItem, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun ItemCard(
+    sequence: Int,
+    item: HiddenObjectItem,
+    template: HiddenObjectTemplate,
+    bitmap: Bitmap?,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                modifier = Modifier.size(32.dp),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(sequence.toString(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Box {
+                if (bitmap != null) {
+                    CoordinateThumbnail(bitmap = bitmap, template = template, item = item)
+                } else {
+                    Surface(
+                        modifier = Modifier.size(48.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                    ) {}
+                }
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomEnd).size(22.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(sequence.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
             Spacer(Modifier.size(10.dp))
@@ -629,6 +672,59 @@ private fun ItemCard(sequence: Int, item: HiddenObjectItem, onEdit: () -> Unit, 
             IconButton(onClick = onDelete) { Icon(Icons.Default.DeleteOutline, contentDescription = "删除物品", tint = MaterialTheme.colorScheme.error) }
         }
     }
+}
+
+@Composable
+private fun TemplateThumbnail(path: String) {
+    val bitmap = remember(path) { decodeSampledBitmap(path, 256) }
+    DisposableEffect(bitmap) {
+        onDispose { bitmap?.takeUnless(Bitmap::isRecycled)?.recycle() }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "模板缩略图",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)),
+        )
+    } else {
+        Box(
+            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.secondaryContainer),
+        )
+    }
+}
+
+@Composable
+private fun CoordinateThumbnail(bitmap: Bitmap, template: HiddenObjectTemplate, item: HiddenObjectItem) {
+    val scene = template.sceneRegion.normalized()
+    Canvas(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(10.dp))) {
+        val centerX = (scene.left + item.normalizedX.coerceIn(0f, 1f) * (scene.right - scene.left)) * bitmap.width
+        val centerY = (scene.top + item.normalizedY.coerceIn(0f, 1f) * (scene.bottom - scene.top)) * bitmap.height
+        val cropSize = (minOf(bitmap.width, bitmap.height) * 0.18f).coerceAtLeast(1f)
+        val left = (centerX - cropSize / 2f).coerceIn(0f, (bitmap.width - cropSize).coerceAtLeast(0f))
+        val top = (centerY - cropSize / 2f).coerceIn(0f, (bitmap.height - cropSize).coerceAtLeast(0f))
+        val source = Rect(left.toInt(), top.toInt(), (left + cropSize).toInt(), (top + cropSize).toInt())
+        drawIntoCanvas { canvas ->
+            canvas.nativeCanvas.drawBitmap(
+                bitmap,
+                source,
+                RectF(0f, 0f, size.width, size.height),
+                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
+            )
+        }
+    }
+}
+
+private fun decodeSampledBitmap(path: String, targetSize: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sampleSize = 1
+    while (bounds.outWidth / (sampleSize * 2) >= targetSize && bounds.outHeight / (sampleSize * 2) >= targetSize) {
+        sampleSize *= 2
+    }
+    return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sampleSize })
 }
 
 @Composable

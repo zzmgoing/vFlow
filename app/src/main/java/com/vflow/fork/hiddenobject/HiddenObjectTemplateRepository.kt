@@ -5,13 +5,20 @@ import com.google.gson.GsonBuilder
 import java.io.File
 import java.util.UUID
 
-class HiddenObjectTemplateRepository private constructor(private val rootDir: File) {
+class HiddenObjectTemplateRepository private constructor(
+    private val rootDir: File,
+    private val imageDir: File,
+) {
     private val gson = GsonBuilder().setPrettyPrinting().create()
 
-    constructor(context: Context) : this(File(context.applicationContext.filesDir, "fork_hidden_object/templates"))
+    constructor(context: Context) : this(
+        rootDir = File(context.applicationContext.filesDir, "fork_hidden_object/templates"),
+        imageDir = File(context.applicationContext.cacheDir, "fork_hidden_object/template_images"),
+    )
 
     init {
         rootDir.mkdirs()
+        imageDir.mkdirs()
     }
 
     fun list(): List<HiddenObjectTemplate> = rootDir.listFiles { file -> file.extension == "json" }
@@ -52,12 +59,14 @@ class HiddenObjectTemplateRepository private constructor(private val rootDir: Fi
     }
 
     fun delete(id: String): Boolean {
+        if (!SAFE_ID.matches(id)) return false
         val template = get(id)
         template?.referenceImagePath?.let { path ->
             val image = File(path)
-            if (image.canonicalPath.startsWith(requireNotNull(rootDir.parentFile).canonicalPath)) image.delete()
+            if (image.isInside(imageDir) || image.isInside(requireNotNull(rootDir.parentFile))) image.delete()
         }
-        return SAFE_ID.matches(id) && File(rootDir, "$id.json").delete()
+        referenceImageFile(id).delete()
+        return File(rootDir, "$id.json").delete()
     }
 
     fun exportJson(id: String): String? = get(id)?.let(gson::toJson)
@@ -70,19 +79,39 @@ class HiddenObjectTemplateRepository private constructor(private val rootDir: Fi
     }
 
     fun referenceImageFile(templateId: String): File {
-        val imageDir = File(rootDir.parentFile, "images").apply { mkdirs() }
+        require(SAFE_ID.matches(templateId)) { "无效模板 ID" }
+        imageDir.mkdirs()
         return File(imageDir, "$templateId.png")
     }
 
     private fun readFile(file: File): HiddenObjectTemplate {
         val value = gson.fromJson(file.readText(Charsets.UTF_8), HiddenObjectTemplate::class.java)
         require(value.schemaVersion in 1..HiddenObjectTemplate.CURRENT_SCHEMA_VERSION) { "不支持的模板版本" }
-        return value
+        return migrateReferenceImage(value)
+    }
+
+    private fun migrateReferenceImage(template: HiddenObjectTemplate): HiddenObjectTemplate {
+        val source = template.referenceImagePath?.let(::File)?.takeIf(File::isFile) ?: return template
+        val target = referenceImageFile(template.id)
+        if (source.canonicalFile == target.canonicalFile) return template
+
+        source.copyTo(target, overwrite = true)
+        val migrated = save(template.copy(referenceImagePath = target.absolutePath))
+        source.delete()
+        return migrated
+    }
+
+    private fun File.isInside(directory: File): Boolean {
+        val parentPath = directory.canonicalFile.toPath()
+        return canonicalFile.toPath().startsWith(parentPath)
     }
 
     companion object {
         private val SAFE_ID = Regex("[A-Za-z0-9_-]{1,80}")
 
-        fun forTests(rootDir: File): HiddenObjectTemplateRepository = HiddenObjectTemplateRepository(rootDir)
+        fun forTests(
+            rootDir: File,
+            imageDir: File = File(requireNotNull(rootDir.parentFile), "template_images_cache"),
+        ): HiddenObjectTemplateRepository = HiddenObjectTemplateRepository(rootDir, imageDir)
     }
 }

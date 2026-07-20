@@ -74,15 +74,36 @@ class HiddenObjectModelsTest {
     @Test
     fun `复制模板时参考图独立保存`() {
         val dir = Files.createTempDirectory("hidden-object-image-test").toFile()
-        val repository = HiddenObjectTemplateRepository.forTests(dir)
+        val imageCache = java.io.File(dir.parentFile, "${dir.name}-cache")
+        val repository = HiddenObjectTemplateRepository.forTests(dir, imageCache)
         val source = HiddenObjectTemplate(name = "关卡", referenceWidth = 10, referenceHeight = 10)
         val sourceImage = repository.referenceImageFile(source.id).apply { writeText("image") }
+        assertEquals(imageCache.canonicalFile, requireNotNull(sourceImage.parentFile).canonicalFile)
         repository.save(source.copy(referenceImagePath = sourceImage.absolutePath))
         val copied = repository.duplicate(source.id)!!
         assertTrue(copied.referenceImagePath != sourceImage.absolutePath)
-        assertTrue(java.io.File(copied.referenceImagePath!!).isFile)
+        val copiedImage = java.io.File(copied.referenceImagePath!!)
+        assertTrue(copiedImage.isFile)
         repository.delete(copied.id)
+        assertFalse(copiedImage.exists())
         assertTrue(sourceImage.isFile)
+    }
+
+    @Test
+    fun `读取旧模板时将参考图迁移到缓存目录`() {
+        val dir = Files.createTempDirectory("hidden-object-migration-test").toFile()
+        val imageCache = java.io.File(dir.parentFile, "${dir.name}-cache")
+        val repository = HiddenObjectTemplateRepository.forTests(dir, imageCache)
+        val template = HiddenObjectTemplate(name = "旧关卡", referenceWidth = 10, referenceHeight = 10)
+        val legacyImage = java.io.File(dir.parentFile, "legacy.png").apply { writeText("image") }
+        repository.save(template.copy(referenceImagePath = legacyImage.absolutePath))
+
+        val migrated = repository.get(template.id)!!
+
+        val migratedImage = java.io.File(requireNotNull(migrated.referenceImagePath))
+        assertEquals(imageCache.canonicalFile, requireNotNull(migratedImage.parentFile).canonicalFile)
+        assertTrue(migratedImage.isFile)
+        assertFalse(legacyImage.exists())
     }
 
     @Test
