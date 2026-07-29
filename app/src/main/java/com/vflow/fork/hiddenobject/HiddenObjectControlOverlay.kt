@@ -9,7 +9,6 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.provider.Settings
 import android.text.TextUtils
-import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -22,7 +21,6 @@ import com.chaomixian.vflow.ui.common.ThemeUtils
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
@@ -30,7 +28,18 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.CancellationException
 
 internal class HiddenObjectControlOverlay(private val context: Context) {
-    enum class HintControlEvent { TIMEOUT, START, PAUSE }
+    data class HintTarget(val itemId: String, val x: Int, val y: Int)
+    sealed class HintControlEvent {
+        data object Timeout : HintControlEvent()
+        data object Start : HintControlEvent()
+        data object Pause : HintControlEvent()
+    }
+
+    private data class HintMarkerEntry(
+        val view: HintMarkerView,
+        val params: WindowManager.LayoutParams,
+        var target: HintTarget,
+    )
 
     private val overlayContext = ServiceStateBus.getAccessibilityService() ?: context.applicationContext
     private val windowManager = overlayContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -41,8 +50,7 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
     private var statusText: TextView? = null
     private var startButton: MaterialButton? = null
     private var pauseButton: MaterialButton? = null
-    private var markerView: TargetMarkerView? = null
-    private var markerParams: WindowManager.LayoutParams? = null
+    private val hintMarkers = linkedMapOf<String, HintMarkerEntry>()
     @Volatile private var closed = false
 
     suspend fun show(showPauseControl: Boolean = false, onClose: () -> Unit) = withContext(Dispatchers.Main) {
@@ -173,24 +181,19 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
 
     suspend fun awaitHintControlOrTimeout(timeoutMillis: Long): HintControlEvent =
         withTimeoutOrNull(timeoutMillis) {
-            select {
-                startRequests.onReceiveCatching { result ->
-                    result.getOrNull()
-                        ?: throw CancellationException("用户关闭自动寻物")
-                    HintControlEvent.START
-                }
-                pauseRequests.onReceiveCatching { result ->
-                    result.getOrNull()
-                        ?: throw CancellationException("用户关闭自动寻物")
-                    HintControlEvent.PAUSE
-                }
-            }
-        } ?: HintControlEvent.TIMEOUT
+            awaitHintControl()
+        } ?: HintControlEvent.Timeout
 
-    suspend fun pause(status: String) = withContext(Dispatchers.Main) {
-        if (!closed) {
-            statusText?.text = status
-            startButton?.visibility = View.VISIBLE
+    suspend fun awaitHintControl(): HintControlEvent = select {
+        startRequests.onReceiveCatching { result ->
+            result.getOrNull()
+                ?: throw CancellationException("用户关闭自动寻物")
+            HintControlEvent.Start
+        }
+        pauseRequests.onReceiveCatching { result ->
+            result.getOrNull()
+                ?: throw CancellationException("用户关闭自动寻物")
+            HintControlEvent.Pause
         }
     }
 
@@ -214,77 +217,68 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
         statusText?.post { statusText?.text = value }
     }
 
-    suspend fun hideForCapture() = withContext(Dispatchers.Main) {
-        controlCard?.visibility = View.INVISIBLE
-        markerView?.visibility = View.INVISIBLE
-        delay(120)
-    }
-
-    suspend fun restoreAfterCapture() = withContext(Dispatchers.Main) {
-        if (!closed) {
-            controlCard?.visibility = View.VISIBLE
-            markerView?.takeIf { it.hasTargets() }?.visibility = View.VISIBLE
+    suspend fun showHintTargets(targets: List<HintTarget>) = withContext(Dispatchers.Main) {
+        val targetIds = targets.mapTo(hashSetOf()) { it.itemId }
+        hintMarkers.keys.filter { it !in targetIds }.toList().forEach(::removeHintMarker)
+        targets.forEach { target ->
+            val existing = hintMarkers[target.itemId]
+            if (existing == null) {
+                addHintMarker(target)
+            } else if (existing.target.x != target.x || existing.target.y != target.y) {
+                existing.target = target
+                existing.params.x = target.x - existing.params.width / 2
+                existing.params.y = target.y - existing.params.height / 2
+                runCatching { windowManager.updateViewLayout(existing.view, existing.params) }
+            }
         }
-    }
-
-    suspend fun showTarget(x: Int, y: Int) = withContext(Dispatchers.Main) {
-        val marker = getOrCreateMarkerView()
-        marker.addClickTarget(x.toFloat(), y.toFloat())
-        marker.visibility = View.VISIBLE
-    }
-
-    suspend fun showHintTargets(points: List<Pair<Int, Int>>) = withContext(Dispatchers.Main) {
-        val marker = getOrCreateMarkerView()
-        marker.setHintTargets(points.map { (x, y) -> x.toFloat() to y.toFloat() })
-        marker.visibility = if (points.isEmpty()) View.INVISIBLE else View.VISIBLE
-    }
-
-    suspend fun clearTargets() = withContext(Dispatchers.Main) {
-        markerView?.clearTargets()
-        markerView?.visibility = View.INVISIBLE
     }
 
     suspend fun dismiss() = withContext(Dispatchers.Main) { dismissNow() }
 
     private fun dismissNow() {
         runCatching { controlCard?.let(windowManager::removeView) }
-        runCatching { markerView?.let(windowManager::removeView) }
+        removeAllHintMarkers()
         controlCard = null
         controlParams = null
         startButton = null
         pauseButton = null
-        markerView = null
-        markerParams = null
     }
 
-    private fun getOrCreateMarkerView(): TargetMarkerView = markerView ?: TargetMarkerView(overlayContext).also { view ->
-        view.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getRealMetrics(metrics)
+    private fun addHintMarker(target: HintTarget) {
+        val size = dp(46f).toInt()
+        val view = HintMarkerView(overlayContext)
         val params = WindowManager.LayoutParams(
-            metrics.widthPixels,
-            metrics.heightPixels,
+            size,
+            size,
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
         ).apply {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
             gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = 0
+            x = target.x - size / 2
+            y = target.y - size / 2
         }
         windowManager.addView(view, params)
-        markerParams = params
-        markerView = view
+        hintMarkers[target.itemId] = HintMarkerEntry(view, params, target)
+    }
+
+    private fun removeHintMarker(itemId: String) {
+        val entry = hintMarkers.remove(itemId) ?: return
+        runCatching { windowManager.removeView(entry.view) }
+    }
+
+    private fun removeAllHintMarkers() {
+        hintMarkers.values.toList().forEach { entry ->
+            runCatching { windowManager.removeView(entry.view) }
+        }
+        hintMarkers.clear()
     }
 
     private fun installDrag(handle: View, params: WindowManager.LayoutParams, windowView: View) {
@@ -326,98 +320,50 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
 
     private fun dp(value: Float): Float = value * overlayContext.resources.displayMetrics.density
 
-    private class TargetMarkerView(context: Context) : View(context) {
-        private enum class Style { CLICK, HINT }
-
-        private val clickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.RED
-            style = Paint.Style.STROKE
-            strokeWidth = resources.displayMetrics.density * 2.5f
-            setShadowLayer(resources.displayMetrics.density * 2f, 0f, 0f, 0x66000000)
-        }
-        private val hintFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private class HintMarkerView(context: Context) : View(context) {
+        private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             style = Paint.Style.FILL
         }
-        private val hintStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             style = Paint.Style.STROKE
             strokeWidth = resources.displayMetrics.density * 2f
         }
-        private val clickRadius = resources.displayMetrics.density * 10f
-        private val hintMinRadius = resources.displayMetrics.density * 11f
-        private val hintRadiusRange = resources.displayMetrics.density * 8f
-        private val targets = mutableListOf<Pair<Float, Float>>()
-        private var style = Style.CLICK
+        private val minRadius = resources.displayMetrics.density * 11f
+        private val radiusRange = resources.displayMetrics.density * 8f
         private var pulseProgress = 0f
-        private var pulseAnimator: ValueAnimator? = null
-
-        init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
-
-        fun addClickTarget(x: Float, y: Float) {
-            style = Style.CLICK
-            stopPulse()
-            targets += x to y
-            invalidate()
+        private val pulseAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 750L
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener {
+                pulseProgress = it.animatedValue as Float
+                invalidate()
+            }
         }
 
-        fun setHintTargets(values: List<Pair<Float, Float>>) {
-            style = Style.HINT
-            targets.clear()
-            targets.addAll(values)
-            if (targets.isEmpty()) stopPulse() else startPulse()
-            invalidate()
+        init {
+            setLayerType(LAYER_TYPE_SOFTWARE, null)
         }
 
-        fun clearTargets() {
-            targets.clear()
-            stopPulse()
-            invalidate()
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            pulseAnimator.start()
         }
-
-        fun hasTargets(): Boolean = targets.isNotEmpty()
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            when (style) {
-                Style.CLICK -> targets.forEach { (x, y) ->
-                    canvas.drawCircle(x, y, clickRadius, clickPaint)
-                }
-                Style.HINT -> {
-                    val radius = hintMinRadius + hintRadiusRange * pulseProgress
-                    hintFillPaint.alpha = (72 - 28 * pulseProgress).toInt()
-                    hintStrokePaint.alpha = (210 - 70 * pulseProgress).toInt()
-                    targets.forEach { (x, y) ->
-                        canvas.drawCircle(x, y, radius, hintFillPaint)
-                        canvas.drawCircle(x, y, radius, hintStrokePaint)
-                    }
-                }
-            }
-        }
-
-        private fun startPulse() {
-            if (pulseAnimator?.isRunning == true) return
-            pulseAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 750L
-                repeatMode = ValueAnimator.REVERSE
-                repeatCount = ValueAnimator.INFINITE
-                interpolator = AccelerateDecelerateInterpolator()
-                addUpdateListener {
-                    pulseProgress = it.animatedValue as Float
-                    invalidate()
-                }
-                start()
-            }
-        }
-
-        private fun stopPulse() {
-            pulseAnimator?.cancel()
-            pulseAnimator = null
-            pulseProgress = 0f
+            val radius = minRadius + radiusRange * pulseProgress
+            fillPaint.alpha = (72 - 28 * pulseProgress).toInt()
+            strokePaint.alpha = (210 - 70 * pulseProgress).toInt()
+            canvas.drawCircle(width / 2f, height / 2f, radius, fillPaint)
+            canvas.drawCircle(width / 2f, height / 2f, radius, strokePaint)
         }
 
         override fun onDetachedFromWindow() {
-            stopPulse()
+            pulseAnimator.cancel()
             super.onDetachedFromWindow()
         }
     }

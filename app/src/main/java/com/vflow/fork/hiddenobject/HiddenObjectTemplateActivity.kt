@@ -259,7 +259,7 @@ private fun TemplateListScreen(
     ) {
         item {
             Text(
-                text = if (selectMode) "选择一个已录入模板用于自动寻物。" else "提前录入每个关卡的名称区域和物品坐标，运行时即可离线识别并点击。",
+                text = if (selectMode) "选择一个已录入模板用于自动寻物。" else "提前录入每个关卡的名称区域和物品坐标，运行时即可离线识别并显示位置提示。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

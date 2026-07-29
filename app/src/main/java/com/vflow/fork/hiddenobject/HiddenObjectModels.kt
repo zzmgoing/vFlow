@@ -111,44 +111,65 @@ data class HiddenObjectMatchResult(
     val unmatchedTexts: List<String>,
 )
 
-class HiddenObjectRoundTracker(private val idleFinishMs: Long) {
-    private val roundItems = linkedSetOf<String>()
-    private val clickedItems = linkedSetOf<String>()
-    var roundCount: Int = 0
-        private set
-    var clickCount: Int = 0
-        private set
-    private var lastActionableAt: Long = 0L
+data class HiddenObjectRecognizedLabel(
+    val text: String,
+    val brightnessScore: Int,
+    val hasStrikeThrough: Boolean = false,
+)
 
-    fun observe(itemIds: Set<String>, nowMs: Long): Set<String> {
-        if (itemIds.isEmpty()) return emptySet()
-        val hasNewItem = itemIds.any { it !in roundItems }
-        val isNewRound = roundItems.isNotEmpty() && hasNewItem && !itemIds.containsAll(roundItems)
-        if (roundItems.isEmpty() || isNewRound) {
-            roundItems.clear()
-            clickedItems.clear()
-            roundItems.addAll(itemIds)
-            roundCount++
-        } else {
-            roundItems.addAll(itemIds)
+data class HiddenObjectVisualMatchResult(
+    val activeItems: List<HiddenObjectItem>,
+    val completedItems: List<HiddenObjectItem>,
+    val unmatchedTexts: List<String>,
+)
+
+object HiddenObjectLabelAppearance {
+    private const val DEFAULT_ACTIVE_THRESHOLD = 185
+    private const val MIN_CLUSTER_GAP = 24
+
+    fun activeMask(brightnessScores: List<Int>): List<Boolean> {
+        if (brightnessScores.isEmpty()) return emptyList()
+        val sorted = brightnessScores.distinct().sorted()
+        val split = sorted.zipWithNext()
+            .map { (lower, upper) -> Triple(upper - lower, lower, upper) }
+            .maxByOrNull { it.first }
+            ?.takeIf { (gap, lower, upper) ->
+                gap >= MIN_CLUSTER_GAP && lower < DEFAULT_ACTIVE_THRESHOLD && upper > DEFAULT_ACTIVE_THRESHOLD
+            }
+        val threshold = split?.let { (_, lower, upper) -> (lower + upper) / 2 }
+            ?: DEFAULT_ACTIVE_THRESHOLD
+        return brightnessScores.map { it >= threshold }
+    }
+}
+
+fun HiddenObjectNameMatcher.matchVisual(
+    labels: List<HiddenObjectRecognizedLabel>,
+    template: HiddenObjectTemplate,
+): HiddenObjectVisualMatchResult {
+    val itemIndex = index(template)
+    val matched = labels.mapNotNull { label ->
+        itemIndex[normalize(label.text)]?.let { item -> item to label }
+    }
+    val activeMask = HiddenObjectLabelAppearance.activeMask(matched.map { it.second.brightnessScore })
+        .mapIndexed { index, isBright -> isBright && !matched[index].second.hasStrikeThrough }
+    val active = linkedMapOf<String, HiddenObjectItem>()
+    val completed = linkedMapOf<String, HiddenObjectItem>()
+    matched.forEachIndexed { index, (item, _) ->
+        if (activeMask[index]) {
+            active.putIfAbsent(item.id, item)
+            completed.remove(item.id)
+        } else if (item.id !in active) {
+            completed.putIfAbsent(item.id, item)
         }
-        val actionable = itemIds - clickedItems
-        if (actionable.isNotEmpty()) lastActionableAt = nowMs
-        return actionable
     }
-
-    fun markClicked(itemId: String, nowMs: Long) {
-        if (clickedItems.add(itemId)) clickCount++
-        lastActionableAt = nowMs
+    val unmatched = labels.mapNotNullTo(linkedSetOf()) { label ->
+        label.text.trim().takeIf {
+            normalize(it).isNotBlank() && normalize(it) !in itemIndex
+        }
     }
-
-    fun startNextCycle() {
-        roundItems.clear()
-        clickedItems.clear()
-        lastActionableAt = 0L
-    }
-
-    fun shouldPause(nowMs: Long): Boolean = roundItems.isNotEmpty() &&
-        clickedItems.containsAll(roundItems) &&
-        nowMs - lastActionableAt >= idleFinishMs
+    return HiddenObjectVisualMatchResult(
+        activeItems = active.values.toList(),
+        completedItems = completed.values.toList(),
+        unmatchedTexts = unmatched.toList(),
+    )
 }

@@ -28,6 +28,47 @@ class HiddenObjectModelsTest {
     }
 
     @Test
+    fun `视觉匹配只把白色名称视为未完成物品`() {
+        val white = HiddenObjectItem(name = "钥匙")
+        val gray = HiddenObjectItem(name = "木人桩")
+        val result = HiddenObjectNameMatcher.matchVisual(
+            labels = listOf(
+                HiddenObjectRecognizedLabel("海螺", 214),
+                HiddenObjectRecognizedLabel("长椅", 72, hasStrikeThrough = true),
+            ),
+            template = HiddenObjectTemplate(
+                items = listOf(
+                    white.copy(name = "海螺"),
+                    gray.copy(name = "长椅"),
+                ),
+            ),
+        )
+
+        assertEquals(listOf(white.id), result.activeItems.map { it.id })
+        assertEquals(listOf(gray.id), result.completedItems.map { it.id })
+    }
+
+    @Test
+    fun `同批名称存在明显亮度差时自适应区分白色和灰色`() {
+        assertEquals(
+            listOf(true, true, false, false),
+            HiddenObjectLabelAppearance.activeMask(listOf(218, 224, 172, 168)),
+        )
+    }
+
+    @Test
+    fun `带删除线的名称即使偏亮也视为已完成`() {
+        val item = HiddenObjectItem(name = "钥匙")
+        val result = HiddenObjectNameMatcher.matchVisual(
+            labels = listOf(HiddenObjectRecognizedLabel("钥匙", 220, hasStrikeThrough = true)),
+            template = HiddenObjectTemplate(items = listOf(item)),
+        )
+
+        assertTrue(result.activeItems.isEmpty())
+        assertEquals(listOf(item.id), result.completedItems.map { it.id })
+    }
+
+    @Test
     fun `旧模板中的OCR别名可读取但不再参与识别`() {
         val dir = Files.createTempDirectory("hidden-object-legacy-alias-test").toFile()
         val repository = HiddenObjectTemplateRepository.forTests(dir)
@@ -64,44 +105,6 @@ class HiddenObjectModelsTest {
         )
         assertEquals(500 to 1000, template.clickPoint(HiddenObjectItem(normalizedX = 0.5f, normalizedY = 0.5f), 1000, 2000))
         assertEquals(250 to 500, template.clickPoint(HiddenObjectItem(normalizedX = 0.5f, normalizedY = 0.5f), 500, 1000))
-    }
-
-    @Test
-    fun `轮次跟踪不重复点击并能识别新轮次和空闲暂停`() {
-        val tracker = HiddenObjectRoundTracker(idleFinishMs = 3000)
-        assertEquals(setOf("a", "b"), tracker.observe(setOf("a", "b"), 0))
-        tracker.markClicked("a", 10)
-        tracker.markClicked("b", 20)
-        assertTrue(tracker.observe(setOf("a", "b"), 100).isEmpty())
-        assertFalse(tracker.shouldPause(3019))
-        assertTrue(tracker.shouldPause(3020))
-        assertEquals(setOf("b", "c"), tracker.observe(setOf("b", "c"), 4000))
-        assertEquals(2, tracker.roundCount)
-    }
-
-    @Test
-    fun `重新开始后允许再次点击同一批物品且空画面不会立即暂停`() {
-        val tracker = HiddenObjectRoundTracker(idleFinishMs = 3000)
-        assertEquals(setOf("a"), tracker.observe(setOf("a"), 0))
-        tracker.markClicked("a", 10)
-        assertTrue(tracker.shouldPause(3010))
-
-        tracker.startNextCycle()
-
-        assertFalse(tracker.shouldPause(10_000))
-        assertEquals(setOf("a"), tracker.observe(setOf("a"), 10_100))
-        assertEquals(2, tracker.roundCount)
-        assertEquals(1, tracker.clickCount)
-    }
-
-    @Test
-    fun `同一轮OCR逐步补全目标时不重复已点击项目`() {
-        val tracker = HiddenObjectRoundTracker(idleFinishMs = 3000)
-        assertEquals(setOf("a"), tracker.observe(setOf("a"), 0))
-        tracker.markClicked("a", 10)
-        assertEquals(setOf("b"), tracker.observe(setOf("a", "b"), 100))
-        assertEquals(1, tracker.roundCount)
-        assertEquals(1, tracker.clickCount)
     }
 
     @Test
