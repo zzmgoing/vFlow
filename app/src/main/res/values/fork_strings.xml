@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="fork_hidden_object_module_name">自动寻物</string>
-    <string name="fork_hidden_object_module_description">根据已录入的关卡模板识别物品名称并自动点击</string>
+    <string name="fork_hidden_object_module_description">根据已录入的关卡模板识别物品名称，并自动点击或显示位置提示</string>
     <string name="fork_hidden_object_template_unselected">未选择模板</string>
     <string name="fork_hidden_object_summary_prefix">使用寻物模板 </string>
     <string name="fork_hidden_object_editor_template_title">关卡模板</string>
@@ -12,6 +12,8 @@
     <string name="fork_hidden_object_editor_change_button">更换关卡模板</string>
     <string name="fork_hidden_object_editor_manage_button">管理关卡模板</string>
     <string name="fork_hidden_object_editor_template_summary">%1$d 个物品 · %2$d × %3$d</string>
+    <string name="fork_hidden_object_execution_mode_click">点击模式</string>
+    <string name="fork_hidden_object_execution_mode_hint">提示模式</string>
     <string name="fork_hidden_object_editor_picker_unavailable">当前编辑器无法打开模板选择器</string>
     <string name="fork_goldfinger_direction_up">上</string>
     <string name="fork_goldfinger_direction_down">下</string>
