@@ -29,8 +29,12 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
         }
     var template: HiddenObjectTemplate? = null
         set(value) { field = value; invalidate() }
+    var showRegions: Boolean = true
+        set(value) { field = value; invalidate() }
+    var continuousItemSelection: Boolean = false
     var mode: Mode = Mode.NONE
         set(value) {
+            if (field == value) return
             field = value
             draftRect = null
             regionStartRect = null
@@ -41,6 +45,7 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
     var onRegionSelected: ((Mode, NormalizedRect) -> Unit)? = null
     var onItemPointSelected: ((Float, Float) -> Unit)? = null
     var onItemPointChanged: ((String, Float, Float) -> Unit)? = null
+    var onItemTapped: ((String) -> Unit)? = null
 
     private val regionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -151,10 +156,12 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
         val target = imageRect(image)
         canvas.drawBitmap(image, null, target, null)
         template?.let { value ->
-            regionPaint.color = Color.GREEN
-            canvas.drawRect(value.sceneRegion.toViewRect(target), regionPaint)
-            regionPaint.color = Color.CYAN
-            canvas.drawRect(value.labelRegion.toViewRect(target), regionPaint)
+            if (showRegions) {
+                regionPaint.color = Color.GREEN
+                canvas.drawRect(value.sceneRegion.toViewRect(target), regionPaint)
+                regionPaint.color = Color.CYAN
+                canvas.drawRect(value.labelRegion.toViewRect(target), regionPaint)
+            }
             value.items.forEachIndexed { index, item ->
                 if (!item.enabled) return@forEachIndexed
                 val scene = value.sceneRegion.toViewRect(target)
@@ -235,10 +242,14 @@ internal class HiddenObjectTemplateCanvasView(context: Context) : View(context) 
                             ((event.x - scene.left) / scene.width()).coerceIn(0f, 1f),
                             ((event.y - scene.top) / scene.height()).coerceIn(0f, 1f),
                         )
-                        mode = Mode.NONE
+                        if (!continuousItemSelection) mode = Mode.NONE
                     }
                 } else if (draggingItemId != null) {
-                    updateDraggedItem(event.x, event.y, target)
+                    if (moved) {
+                        updateDraggedItem(event.x, event.y, target)
+                    } else {
+                        onItemTapped?.invoke(requireNotNull(draggingItemId))
+                    }
                 } else if ((mode == Mode.SCENE_REGION || mode == Mode.LABEL_REGION) && !scaledDuringGesture) {
                     val rect = (draftRect ?: currentRegionRect(target)).sorted()
                     if (rect.width() > 20f && rect.height() > 20f) {

@@ -9,8 +9,8 @@ import java.nio.file.Files
 
 class HiddenObjectModelsTest {
     @Test
-    fun `名称归一化和别名精确匹配且不会模糊匹配`() {
-        val item = HiddenObjectItem(name = "木人桩", aliases = listOf("木 人 桩！"))
+    fun `标准名称归一化后精确匹配且不会模糊匹配`() {
+        val item = HiddenObjectItem(name = "木人桩")
         val template = HiddenObjectTemplate(items = listOf(item))
         val result = HiddenObjectNameMatcher.match(listOf(" 木 人 桩！", "木人柱"), template)
         assertEquals(listOf(item.id), result.items.map { it.id })
@@ -28,6 +28,36 @@ class HiddenObjectModelsTest {
     }
 
     @Test
+    fun `旧模板中的OCR别名可读取但不再参与识别`() {
+        val dir = Files.createTempDirectory("hidden-object-legacy-alias-test").toFile()
+        val repository = HiddenObjectTemplateRepository.forTests(dir)
+        val imported = repository.importJson(
+            """
+            {
+              "schemaVersion": 1,
+              "id": "legacy",
+              "name": "旧模板",
+              "referenceWidth": 100,
+              "referenceHeight": 100,
+              "items": [
+                {
+                  "id": "item-1",
+                  "name": "钥匙",
+                  "aliases": ["锁匙"],
+                  "normalizedX": 0.5,
+                  "normalizedY": 0.5,
+                  "enabled": true
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("钥匙"), HiddenObjectNameMatcher.match(listOf("钥匙"), imported).items.map { it.name })
+        assertTrue(HiddenObjectNameMatcher.match(listOf("锁匙"), imported).items.isEmpty())
+    }
+
+    @Test
     fun `归一化场景坐标映射到不同分辨率`() {
         val template = HiddenObjectTemplate(
             sceneRegion = NormalizedRect(0.1f, 0.2f, 0.9f, 0.8f),
@@ -37,16 +67,31 @@ class HiddenObjectModelsTest {
     }
 
     @Test
-    fun `轮次跟踪不重复点击并能识别新轮次和空闲结束`() {
+    fun `轮次跟踪不重复点击并能识别新轮次和空闲暂停`() {
         val tracker = HiddenObjectRoundTracker(idleFinishMs = 3000)
         assertEquals(setOf("a", "b"), tracker.observe(setOf("a", "b"), 0))
         tracker.markClicked("a", 10)
         tracker.markClicked("b", 20)
         assertTrue(tracker.observe(setOf("a", "b"), 100).isEmpty())
-        assertFalse(tracker.shouldFinish(3019))
-        assertTrue(tracker.shouldFinish(3020))
+        assertFalse(tracker.shouldPause(3019))
+        assertTrue(tracker.shouldPause(3020))
         assertEquals(setOf("b", "c"), tracker.observe(setOf("b", "c"), 4000))
         assertEquals(2, tracker.roundCount)
+    }
+
+    @Test
+    fun `重新开始后允许再次点击同一批物品且空画面不会立即暂停`() {
+        val tracker = HiddenObjectRoundTracker(idleFinishMs = 3000)
+        assertEquals(setOf("a"), tracker.observe(setOf("a"), 0))
+        tracker.markClicked("a", 10)
+        assertTrue(tracker.shouldPause(3010))
+
+        tracker.startNextCycle()
+
+        assertFalse(tracker.shouldPause(10_000))
+        assertEquals(setOf("a"), tracker.observe(setOf("a"), 10_100))
+        assertEquals(2, tracker.roundCount)
+        assertEquals(1, tracker.clickCount)
     }
 
     @Test

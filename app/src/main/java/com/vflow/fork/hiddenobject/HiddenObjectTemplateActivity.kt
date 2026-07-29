@@ -80,6 +80,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.chaomixian.vflow.core.utils.StorageManager
 import com.chaomixian.vflow.ui.common.BaseActivity
 import com.chaomixian.vflow.ui.common.VFlowTheme
@@ -117,10 +119,8 @@ class HiddenObjectTemplateActivity : BaseActivity() {
 private data class ItemDraft(
     val itemId: String? = null,
     val name: String = "",
-    val aliases: String = "",
     val x: String = "0.5",
     val y: String = "0.5",
-    val selectPointAfterSave: Boolean = false,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -383,7 +383,7 @@ private fun TemplateEditorScreen(
     var template by remember(initial.id) { mutableStateOf(initial) }
     var canvasView by remember { mutableStateOf<HiddenObjectTemplateCanvasView?>(null) }
     var itemDraft by remember { mutableStateOf<ItemDraft?>(null) }
-    var pendingPoint by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
+    var showQuickAnnotation by remember { mutableStateOf(false) }
     var bitmap by remember(initial.id) {
         mutableStateOf(initial.referenceImagePath?.let(BitmapFactory::decodeFile))
     }
@@ -483,12 +483,6 @@ private fun TemplateEditorScreen(
                                         }
                                     )
                                 }
-                                view.onItemPointSelected = pointSelected@{ x, y ->
-                                    val pending = pendingPoint ?: return@pointSelected
-                                    pendingPoint = null
-                                    update(template.copy(items = template.items + HiddenObjectItem(name = pending.first, aliases = pending.second, normalizedX = x, normalizedY = y)))
-                                    showMessage("已添加 ${pending.first}")
-                                }
                                 view.onItemPointChanged = { itemId, x, y ->
                                     update(
                                         template.copy(
@@ -519,6 +513,15 @@ private fun TemplateEditorScreen(
                         enabled = bitmap != null,
                         modifier = Modifier.weight(1f),
                     ) { Text("放大") }
+                }
+                FilledTonalButton(
+                    onClick = { showQuickAnnotation = true },
+                    enabled = bitmap != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("全屏快速添加物品")
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FilledTonalButton(
@@ -554,18 +557,9 @@ private fun TemplateEditorScreen(
             }
         }
         item {
-            SectionCard(title = "物品坐标", description = "双指缩放参考画面，拖动空白处平移；可直接拖动带序号圆圈精确修改位置。坐标取圆圈中心点。") {
-                FilledTonalButton(
-                    onClick = { itemDraft = ItemDraft(selectPointAfterSave = true) },
-                    enabled = bitmap != null,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.size(8.dp))
-                    Text("添加并点选物品")
-                }
+            SectionCard(title = "物品坐标", description = "使用上方“全屏快速添加物品”连续点选；也可在参考画面中拖动黄圈微调位置。") {
                 if (template.items.isEmpty()) {
-                    Text("暂无物品，请从当前轮次开始逐个录入。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                    Text("暂无物品，请进入全屏模式在截图上点选添加。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         template.items.forEachIndexed { index, item ->
@@ -574,7 +568,7 @@ private fun TemplateEditorScreen(
                                 item = item,
                                 template = template,
                                 bitmap = bitmap,
-                                onEdit = { itemDraft = ItemDraft(item.id, item.name, item.aliases.joinToString("，"), item.normalizedX.toString(), item.normalizedY.toString()) },
+                                onEdit = { itemDraft = ItemDraft(item.id, item.name, item.normalizedX.toString(), item.normalizedY.toString()) },
                                 onDelete = { update(template.copy(items = template.items.filterNot { value -> value.id == item.id })) },
                             )
                         }
@@ -597,21 +591,22 @@ private fun TemplateEditorScreen(
             onDismiss = { itemDraft = null },
             onConfirm = { changed ->
                 itemDraft = null
-                val aliases = changed.aliases.split(',', '，').map(String::trim).filter(String::isNotBlank)
-                if (changed.selectPointAfterSave) {
-                    pendingPoint = changed.name.trim() to aliases
-                    canvasView?.mode = HiddenObjectTemplateCanvasView.Mode.ITEM_POINT
-                    showMessage("请点击场景中的 ${changed.name.trim()}")
-                } else {
-                    val original = template.items.first { it.id == changed.itemId }
-                    val edited = original.copy(
-                        name = changed.name.trim(), aliases = aliases,
-                        normalizedX = (changed.x.toFloatOrNull() ?: original.normalizedX).coerceIn(0f, 1f),
-                        normalizedY = (changed.y.toFloatOrNull() ?: original.normalizedY).coerceIn(0f, 1f),
-                    )
-                    update(template.copy(items = template.items.map { if (it.id == edited.id) edited else it }))
-                }
+                val original = template.items.first { it.id == changed.itemId }
+                val edited = original.copy(
+                    name = changed.name.trim(),
+                    normalizedX = (changed.x.toFloatOrNull() ?: original.normalizedX).coerceIn(0f, 1f),
+                    normalizedY = (changed.y.toFloatOrNull() ?: original.normalizedY).coerceIn(0f, 1f),
+                )
+                update(template.copy(items = template.items.map { if (it.id == edited.id) edited else it }))
             },
+        )
+    }
+    if (showQuickAnnotation && bitmap != null) {
+        QuickItemAnnotationDialog(
+            bitmap = requireNotNull(bitmap),
+            template = template,
+            onTemplateChanged = ::update,
+            onDismiss = { showQuickAnnotation = false },
         )
     }
 }
@@ -663,7 +658,7 @@ private fun ItemCard(
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(item.name, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "坐标 ${"%.3f".format(item.normalizedX)}, ${"%.3f".format(item.normalizedY)}${if (item.aliases.isEmpty()) "" else " · ${item.aliases.size} 个别名"}",
+                    "坐标 ${"%.3f".format(item.normalizedX)}, ${"%.3f".format(item.normalizedY)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -727,27 +722,181 @@ private fun decodeSampledBitmap(path: String, targetSize: Int): Bitmap? {
     return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sampleSize })
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QuickItemAnnotationDialog(
+    bitmap: Bitmap,
+    template: HiddenObjectTemplate,
+    onTemplateChanged: (HiddenObjectTemplate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var editingItemId by remember { mutableStateOf<String?>(null) }
+
+    fun removeUnnamedItemAndCloseEditor() {
+        val itemId = editingItemId
+        if (itemId != null && template.items.firstOrNull { it.id == itemId }?.name.isNullOrBlank()) {
+            onTemplateChanged(template.copy(items = template.items.filterNot { it.id == itemId }))
+        }
+        editingItemId = null
+    }
+
+    fun closeQuickAnnotation() {
+        val cleanedItems = template.items.filterNot { it.name.isBlank() }
+        if (cleanedItems.size != template.items.size) {
+            onTemplateChanged(template.copy(items = cleanedItems))
+        }
+        onDismiss()
+    }
+
+    Dialog(
+        onDismissRequest = ::closeQuickAnnotation,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
+            Scaffold(
+                containerColor = Color.Black,
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text("快速添加物品")
+                                Text(
+                                    "已标注 ${template.items.count { it.name.isNotBlank() }} 个",
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = ::closeQuickAnnotation) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "完成并返回")
+                            }
+                        },
+                        actions = {
+                            TextButton(onClick = ::closeQuickAnnotation) { Text("完成") }
+                        },
+                    )
+                },
+                bottomBar = {
+                    Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)) {
+                        Text(
+                            "双指缩放，单指拖动画面；点击空白位置添加，点击黄圈编辑，拖动黄圈调整位置。",
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                },
+            ) { paddingValues ->
+                AndroidView(
+                    factory = { HiddenObjectTemplateCanvasView(it) },
+                    update = { view ->
+                        view.bitmap = bitmap
+                        view.template = template
+                        view.showRegions = false
+                        view.continuousItemSelection = true
+                        view.mode = HiddenObjectTemplateCanvasView.Mode.ITEM_POINT
+                        view.onItemPointSelected = { x, y ->
+                            val item = HiddenObjectItem(normalizedX = x, normalizedY = y)
+                            onTemplateChanged(template.copy(items = template.items + item))
+                            editingItemId = item.id
+                        }
+                        view.onItemPointChanged = { itemId, x, y ->
+                            onTemplateChanged(
+                                template.copy(
+                                    items = template.items.map { item ->
+                                        if (item.id == itemId) item.copy(normalizedX = x, normalizedY = y) else item
+                                    },
+                                ),
+                            )
+                        }
+                        view.onItemTapped = { editingItemId = it }
+                    },
+                    modifier = Modifier.fillMaxSize().padding(paddingValues),
+                )
+            }
+        }
+    }
+
+    editingItemId?.let { itemId ->
+        template.items.firstOrNull { it.id == itemId }?.let { item ->
+            QuickItemNameDialog(
+                item = item,
+                onDismiss = ::removeUnnamedItemAndCloseEditor,
+                onConfirm = { name ->
+                    onTemplateChanged(
+                        template.copy(
+                            items = template.items.map { current ->
+                                if (current.id == item.id) current.copy(name = name) else current
+                            },
+                        ),
+                    )
+                    editingItemId = null
+                },
+                onDelete = {
+                    onTemplateChanged(template.copy(items = template.items.filterNot { it.id == item.id }))
+                    editingItemId = null
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickItemNameDialog(
+    item: HiddenObjectItem,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var name by remember(item.id, item.name) { mutableStateOf(item.name) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (item.name.isBlank()) "添加物品" else "编辑物品") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("物品名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "坐标 ${"%.3f".format(item.normalizedX)}, ${"%.3f".format(item.normalizedY)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(name.trim()) }, enabled = name.isNotBlank()) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDelete) {
+                Text("删除", color = MaterialTheme.colorScheme.error)
+            }
+        },
+    )
+}
+
 @Composable
 private fun ItemEditorDialog(initial: ItemDraft, onDismiss: () -> Unit, onConfirm: (ItemDraft) -> Unit) {
     var draft by remember(initial) { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial.selectPointAfterSave) "添加物品" else "编辑物品") },
+        title = { Text("编辑物品") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(draft.name, { draft = draft.copy(name = it) }, label = { Text("标准名称") }, singleLine = true)
-                OutlinedTextField(draft.aliases, { draft = draft.copy(aliases = it) }, label = { Text("OCR 别名（逗号分隔）") }, singleLine = true)
-                if (!initial.selectPointAfterSave) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(draft.x, { draft = draft.copy(x = it) }, label = { Text("归一化 X") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(draft.y, { draft = draft.copy(y = it) }, label = { Text("归一化 Y") }, singleLine = true, modifier = Modifier.weight(1f))
-                    }
-                } else {
-                    Text("确认后请在参考画面中点击物品位置。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(draft.x, { draft = draft.copy(x = it) }, label = { Text("归一化 X") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(draft.y, { draft = draft.copy(y = it) }, label = { Text("归一化 Y") }, singleLine = true, modifier = Modifier.weight(1f))
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(draft) }, enabled = draft.name.isNotBlank()) { Text(if (initial.selectPointAfterSave) "下一步" else "保存") } },
+        confirmButton = { TextButton(onClick = { onConfirm(draft) }, enabled = draft.name.isNotBlank()) { Text("保存") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }

@@ -7,7 +7,6 @@ import com.chaomixian.vflow.core.execution.WorkflowExecutor
 import com.chaomixian.vflow.core.module.ActionMetadata
 import com.chaomixian.vflow.core.module.BaseModule
 import com.chaomixian.vflow.core.module.ExecutionResult
-import com.chaomixian.vflow.core.module.ExecutionSignal
 import com.chaomixian.vflow.core.module.InputDefinition
 import com.chaomixian.vflow.core.module.OutputDefinition
 import com.chaomixian.vflow.core.module.ParameterType
@@ -103,62 +102,77 @@ class HiddenObjectAutoClickModule : BaseModule() {
             } finally {
                 overlay.restoreAfterCapture()
             }
-            overlay.updateStatus("正在识别名称区域…")
-            val startedAt = System.currentTimeMillis()
+            while (true) {
+                tracker.startNextCycle()
+                overlay.updateStatus("正在识别名称区域…")
+                val startedAt = System.currentTimeMillis()
+                var pausedByIdle = false
 
-            while (System.currentTimeMillis() - startedAt < maxDuration) {
-                currentCoroutineContext().ensureActive()
-                val captured = try {
-                    overlay.hideForCapture()
-                    withTimeout(5000L) { captureSession.capture() }
-                } catch (error: Throwable) {
-                    return ExecutionResult.Failure("截图失败", error.message ?: "无法截取当前屏幕")
-                } finally {
-                    overlay.restoreAfterCapture()
-                }
-                try {
-                    val texts = runtime.recognize(context, captured, template.labelRegion).getOrElse {
-                        return ExecutionResult.Failure("OCR 失败", it.message ?: "无法识别名称区域")
+                while (System.currentTimeMillis() - startedAt < maxDuration) {
+                    currentCoroutineContext().ensureActive()
+                    val captured = try {
+                        overlay.hideForCapture()
+                        withTimeout(5000L) { captureSession.capture() }
+                    } catch (error: Throwable) {
+                        return ExecutionResult.Failure("截图失败", error.message ?: "无法截取当前屏幕")
+                    } finally {
+                        overlay.restoreAfterCapture()
                     }
-                    val match = HiddenObjectNameMatcher.match(texts, template)
-                    unmatched += match.unmatchedTexts.filter { HiddenObjectNameMatcher.normalize(it).isNotBlank() }
-                    val byId = match.items.associateBy { it.id }
-                    val previousRoundCount = tracker.roundCount
-                    val actionable = tracker.observe(byId.keys, System.currentTimeMillis())
-                    if (actionable.isNotEmpty()) {
-                        val actionableItems = actionable.mapNotNull(byId::get)
-                        val recognizedNames = actionableItems.joinToString("、") { it.name }
-                        overlay.updateStatus("识别到了：$recognizedNames")
-                        onProgress(ProgressUpdate("第 ${tracker.roundCount} 轮：识别到了 $recognizedNames"))
-                        delay(600)
-                        if (tracker.roundCount > previousRoundCount) {
-                            overlay.clearTargets()
+                    try {
+                        val texts = runtime.recognize(context, captured, template.labelRegion).getOrElse {
+                            return ExecutionResult.Failure("OCR 失败", it.message ?: "无法识别名称区域")
                         }
-                        actionableItems.forEach { item ->
-                            currentCoroutineContext().ensureActive()
-                            val (x, y) = template.clickPoint(item, captured.width, captured.height)
-                            overlay.updateStatus("正在点击：${item.name}")
-                            overlay.showTarget(x, y)
-                            delay(350)
-                            runtime.tap(context, x, y).getOrElse {
-                                return ExecutionResult.Failure("点击失败", "${item.name}：${it.message ?: "无法点击"}")
+                        val match = HiddenObjectNameMatcher.match(texts, template)
+                        unmatched += match.unmatchedTexts.filter { HiddenObjectNameMatcher.normalize(it).isNotBlank() }
+                        val byId = match.items.associateBy { it.id }
+                        val previousRoundCount = tracker.roundCount
+                        val actionable = tracker.observe(byId.keys, System.currentTimeMillis())
+                        if (actionable.isNotEmpty()) {
+                            val actionableItems = actionable.mapNotNull(byId::get)
+                            val recognizedNames = actionableItems.joinToString("、") { it.name }
+                            overlay.updateStatus("识别到了：$recognizedNames")
+                            onProgress(ProgressUpdate("第 ${tracker.roundCount} 轮：识别到了 $recognizedNames"))
+                            delay(600)
+                            if (tracker.roundCount > previousRoundCount) {
+                                overlay.clearTargets()
                             }
-                            delay(180)
-                            tracker.markClicked(item.id, System.currentTimeMillis())
-                            onProgress(ProgressUpdate("已点击 ${item.name} ($x, $y)"))
-                            delay(clickInterval)
+                            actionableItems.forEach { item ->
+                                currentCoroutineContext().ensureActive()
+                                val (x, y) = template.clickPoint(item, captured.width, captured.height)
+                                overlay.updateStatus("正在点击：${item.name}")
+                                overlay.showTarget(x, y)
+                                delay(350)
+                                runtime.tap(context, x, y).getOrElse {
+                                    return ExecutionResult.Failure("点击失败", "${item.name}：${it.message ?: "无法点击"}")
+                                }
+                                delay(180)
+                                tracker.markClicked(item.id, System.currentTimeMillis())
+                                onProgress(ProgressUpdate("已点击 ${item.name} ($x, $y)"))
+                                delay(clickInterval)
+                            }
+                            overlay.updateStatus("点击完毕，正在识别下一轮…")
                         }
-                        overlay.updateStatus("点击完毕，正在识别下一轮…")
+                        if (tracker.shouldPause(System.currentTimeMillis())) {
+                            pausedByIdle = true
+                            break
+                        }
+                    } finally {
+                        runtime.deleteTemporaryImage(captured.image)
                     }
-                    if (tracker.shouldFinish(System.currentTimeMillis())) {
-                        return finishAndStop(overlay)
-                    }
-                } finally {
-                    runtime.deleteTemporaryImage(captured.image)
+                    delay(pollInterval)
                 }
-                delay(pollInterval)
+
+                overlay.clearTargets()
+                val pauseStatus = if (pausedByIdle) {
+                    "本轮已完成，点击开始识别新一轮"
+                } else {
+                    "已达到本轮时限，点击开始重新识别"
+                }
+                overlay.pause(pauseStatus)
+                onProgress(ProgressUpdate("$pauseStatus，或点击结束退出"))
+                overlay.awaitStart()
+                onProgress(ProgressUpdate("自动寻物已重新开始"))
             }
-            return finishAndStop(overlay)
         } finally {
             withContext(NonCancellable) {
                 captureSession?.close()
@@ -166,13 +180,5 @@ class HiddenObjectAutoClickModule : BaseModule() {
                 HiddenObjectRunCache.cleanup(runDir)
             }
         }
-    }
-
-    private suspend fun finishAndStop(
-        overlay: HiddenObjectControlOverlay,
-    ): ExecutionResult {
-        overlay.updateStatus("已执行完毕，3秒后关闭本次工作流")
-        delay(3000)
-        return ExecutionResult.Signal(ExecutionSignal.Stop)
     }
 }

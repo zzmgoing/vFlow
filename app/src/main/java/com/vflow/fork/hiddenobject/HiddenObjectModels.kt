@@ -32,7 +32,6 @@ data class NormalizedRect(
 data class HiddenObjectItem(
     val id: String = UUID.randomUUID().toString(),
     val name: String = "",
-    val aliases: List<String> = emptyList(),
     val normalizedX: Float = 0.5f,
     val normalizedY: Float = 0.5f,
     val enabled: Boolean = true,
@@ -71,9 +70,7 @@ object HiddenObjectNameMatcher {
     fun index(template: HiddenObjectTemplate): Map<String, HiddenObjectItem> {
         val result = linkedMapOf<String, HiddenObjectItem>()
         template.items.filter { it.enabled }.forEach { item ->
-            (listOf(item.name) + item.aliases).forEach { candidate ->
-                normalize(candidate).takeIf { it.isNotBlank() }?.let { key -> result.putIfAbsent(key, item) }
-            }
+            normalize(item.name).takeIf { it.isNotBlank() }?.let { key -> result.putIfAbsent(key, item) }
         }
         return result
     }
@@ -99,12 +96,10 @@ object HiddenObjectNameMatcher {
         val owners = mutableMapOf<String, String>()
         template.items.filter { it.enabled }.forEach { item ->
             if (item.name.isBlank()) errors += "物品名称不能为空"
-            (listOf(item.name) + item.aliases).forEach { candidate ->
-                val key = normalize(candidate)
-                if (key.isNotBlank()) {
-                    val owner = owners.putIfAbsent(key, item.id)
-                    if (owner != null && owner != item.id) errors += "名称或别名重复：$candidate"
-                }
+            val key = normalize(item.name)
+            if (key.isNotBlank()) {
+                val owner = owners.putIfAbsent(key, item.id)
+                if (owner != null && owner != item.id) errors += "物品名称重复：${item.name}"
             }
         }
         return errors.distinct()
@@ -147,7 +142,13 @@ class HiddenObjectRoundTracker(private val idleFinishMs: Long) {
         lastActionableAt = nowMs
     }
 
-    fun shouldFinish(nowMs: Long): Boolean = clickCount > 0 &&
+    fun startNextCycle() {
+        roundItems.clear()
+        clickedItems.clear()
+        lastActionableAt = 0L
+    }
+
+    fun shouldPause(nowMs: Long): Boolean = roundItems.isNotEmpty() &&
         clickedItems.containsAll(roundItems) &&
         nowMs - lastActionableAt >= idleFinishMs
 }

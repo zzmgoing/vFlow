@@ -8,6 +8,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.provider.Settings
 import android.text.TextUtils
+import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -18,19 +19,20 @@ import com.chaomixian.vflow.services.ServiceStateBus
 import com.chaomixian.vflow.ui.common.ThemeUtils
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
 import java.util.concurrent.CancellationException
 
 internal class HiddenObjectControlOverlay(private val context: Context) {
     private val overlayContext = ServiceStateBus.getAccessibilityService() ?: context.applicationContext
     private val windowManager = overlayContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    private val startSignal = CompletableDeferred<Unit>()
+    private val startRequests = Channel<Unit>(Channel.CONFLATED)
     private var controlCard: MaterialCardView? = null
     private var controlParams: WindowManager.LayoutParams? = null
     private var statusText: TextView? = null
+    private var startButton: MaterialButton? = null
     private var markerView: TargetMarkerView? = null
     private var markerParams: WindowManager.LayoutParams? = null
     @Volatile private var closed = false
@@ -75,11 +77,12 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
                 dp(34f).toInt(),
             )
             setOnClickListener {
-                if (!startSignal.isCompleted) startSignal.complete(Unit)
+                startRequests.trySend(Unit)
                 visibility = View.GONE
                 statusText?.text = "准备中"
             }
         }
+        startButton = start
         val close = MaterialButton(themed, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
             text = "结束"
             textSize = 12f
@@ -98,7 +101,7 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
             setOnClickListener {
                 if (closed) return@setOnClickListener
                 closed = true
-                if (!startSignal.isCompleted) startSignal.completeExceptionally(CancellationException("用户关闭自动寻物"))
+                startRequests.close(CancellationException("用户关闭自动寻物"))
                 dismissNow()
                 onClose()
             }
@@ -127,8 +130,15 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
     }
 
     suspend fun awaitStart() {
-        startSignal.await()
-        if (closed) throw CancellationException("用户关闭自动寻物")
+        startRequests.receiveCatching().getOrNull()
+            ?: throw CancellationException("用户关闭自动寻物")
+    }
+
+    suspend fun pause(status: String) = withContext(Dispatchers.Main) {
+        if (!closed) {
+            statusText?.text = status
+            startButton?.visibility = View.VISIBLE
+        }
     }
 
     fun updateStatus(value: String) {
@@ -150,16 +160,30 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
 
     suspend fun showTarget(x: Int, y: Int) = withContext(Dispatchers.Main) {
         val marker = markerView ?: TargetMarkerView(overlayContext).also { view ->
+            view.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
             val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
+                metrics.widthPixels,
+                metrics.heightPixels,
                 overlayType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
                 PixelFormat.TRANSLUCENT,
-            ).apply { gravity = Gravity.TOP or Gravity.START }
+            ).apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+                gravity = Gravity.TOP or Gravity.START
+                this.x = 0
+                this.y = 0
+            }
             windowManager.addView(view, params)
             markerParams = params
             markerView = view
@@ -180,6 +204,7 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
         runCatching { markerView?.let(windowManager::removeView) }
         controlCard = null
         controlParams = null
+        startButton = null
         markerView = null
         markerParams = null
     }
@@ -227,9 +252,10 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.RED
             style = Paint.Style.STROKE
-            strokeWidth = resources.displayMetrics.density * 4f
-            setShadowLayer(resources.displayMetrics.density * 3f, 0f, 0f, 0x66000000)
+            strokeWidth = resources.displayMetrics.density * 2.5f
+            setShadowLayer(resources.displayMetrics.density * 2f, 0f, 0f, 0x66000000)
         }
+        private val targetRadius = resources.displayMetrics.density * 10f
         private val targets = mutableListOf<Pair<Float, Float>>()
 
         init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
@@ -249,7 +275,7 @@ internal class HiddenObjectControlOverlay(private val context: Context) {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             targets.forEach { (x, y) ->
-                canvas.drawCircle(x, y, resources.displayMetrics.density * 18f, paint)
+                canvas.drawCircle(x, y, targetRadius, paint)
             }
         }
     }
