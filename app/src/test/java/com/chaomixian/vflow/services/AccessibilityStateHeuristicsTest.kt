@@ -31,4 +31,20 @@ class AccessibilityStateHeuristicsTest {
         assertTrue(AccessibilityServiceStatus.containsServiceId(expected.uppercase(), expected))
         assertFalse(AccessibilityServiceStatus.containsServiceId("other/.Service", expected))
     }
+
+    @Test
+    fun containsAnyServiceId_acceptsOriginalOrDisguisedComponent() {
+        val original = "com.chaomixian.vflow/com.chaomixian.vflow.services.AccessibilityService"
+        val disguised = "com.chaomixian.vflow/com.google.android.accessibility.selecttospeak.SelectToSpeakService"
+
+        assertTrue(AccessibilityServiceStatus.containsAnyServiceId(original, original, disguised))
+        assertTrue(AccessibilityServiceStatus.containsAnyServiceId(disguised, original, disguised))
+        assertFalse(
+            AccessibilityServiceStatus.containsAnyServiceId(
+                "other.package/other.package.AccessibilityService",
+                original,
+                disguised
+            )
+        )
+    }
 }

@@ -27,11 +27,23 @@ object AccessibilityServiceStatus {
             context.contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         )
-        return containsServiceId(enabledServicesSetting, getServiceId(context))
+        return containsAnyServiceId(
+            enabledServicesSetting,
+            getOriginalServiceId(context),
+            getDisguisedServiceId(context)
+        )
     }
 
     fun isRunning(context: Context): Boolean {
         return ServiceStateBus.isAccessibilityServiceRunning()
+    }
+
+    /**
+     * 无障碍服务可能正在正式组件与伪装组件之间重连。权限检查应识别两个属于
+     * vFlow 的组件，不能仅依赖偏好中记录的目标组件，否则切换期间会误报未授权。
+     */
+    fun isGranted(context: Context): Boolean {
+        return isRunning(context) || isEnabledInSettings(context)
     }
 
     internal fun containsServiceId(enabledServicesSetting: String?, expectedServiceId: String): Boolean {
@@ -42,6 +54,13 @@ object AccessibilityServiceStatus {
         return enabledServicesSetting
             .split(':')
             .any { it.equals(expectedServiceId, ignoreCase = true) }
+    }
+
+    internal fun containsAnyServiceId(
+        enabledServicesSetting: String?,
+        vararg expectedServiceIds: String
+    ): Boolean {
+        return expectedServiceIds.any { containsServiceId(enabledServicesSetting, it) }
     }
 
     internal fun replaceServiceId(
