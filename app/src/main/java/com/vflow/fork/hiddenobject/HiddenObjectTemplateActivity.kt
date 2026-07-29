@@ -142,27 +142,38 @@ private fun HiddenObjectTemplateRoute(
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.openInputStream(uri)!!.bufferedReader().use { repository.importJson(it.readText()) }
-        }.onSuccess {
-            refreshToken++
-            scope.launch { snackbar.showSnackbar("模板已导入") }
-        }.onFailure { scope.launch { snackbar.showSnackbar("导入失败：${it.message}") } }
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use(repository::importPackage)
+                        ?: error("无法读取模板包")
+                }
+            }.onSuccess {
+                refreshToken++
+                snackbar.showSnackbar("模板与参考截图已导入")
+            }.onFailure { snackbar.showSnackbar("导入失败：${it.message}") }
+        }
     }
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         val template = pendingExport
         pendingExport = null
         if (uri != null && template != null) {
-            runCatching {
-                context.contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(repository.exportJson(template.id)) }
-            }.onSuccess { scope.launch { snackbar.showSnackbar("模板已导出") } }
-                .onFailure { scope.launch { snackbar.showSnackbar("导出失败：${it.message}") } }
+            scope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { repository.exportPackage(template.id, it) }
+                            ?: error("无法写入模板包")
+                    }
+                }.onSuccess { snackbar.showSnackbar("模板与参考截图已导出") }
+                    .onFailure { snackbar.showSnackbar("导出失败：${it.message}") }
+            }
         }
     }
 
     fun export(template: HiddenObjectTemplate) {
         pendingExport = template
-        exportLauncher.launch("${template.name}.json")
+        val safeName = template.name.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "寻物模板" }
+        exportLauncher.launch("$safeName.zip")
     }
 
     Scaffold(
@@ -184,7 +195,11 @@ private fun HiddenObjectTemplateRoute(
                 },
                 actions = {
                     if (editing == null) {
-                        TextButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain")) }) {
+                        TextButton(onClick = {
+                            importLauncher.launch(
+                                arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")
+                            )
+                        }) {
                             Text("导入")
                         }
                     }
@@ -353,7 +368,7 @@ private fun TemplateCard(
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(text = { Text("编辑") }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { menuExpanded = false; onEdit() })
                         DropdownMenuItem(text = { Text("复制") }, leadingIcon = { Icon(Icons.Default.ContentCopy, null) }, onClick = { menuExpanded = false; onDuplicate() })
-                        DropdownMenuItem(text = { Text("导出 JSON") }, onClick = { menuExpanded = false; onExport() })
+                        DropdownMenuItem(text = { Text("导出模板包") }, onClick = { menuExpanded = false; onExport() })
                         HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("删除", color = MaterialTheme.colorScheme.error) },
@@ -579,7 +594,7 @@ private fun TemplateEditorScreen(
         item {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilledTonalButton(onClick = ::save, modifier = Modifier.weight(1f)) { Text("保存模板") }
-                OutlinedButton(onClick = { onExport(template) }, modifier = Modifier.weight(1f)) { Text("导出 JSON") }
+                OutlinedButton(onClick = { onExport(template) }, modifier = Modifier.weight(1f)) { Text("导出模板包") }
             }
         }
         item { Spacer(Modifier.height(8.dp)) }

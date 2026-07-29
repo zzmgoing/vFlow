@@ -5,7 +5,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.nio.file.Files
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 class HiddenObjectModelsTest {
     @Test
@@ -80,6 +85,7 @@ class HiddenObjectModelsTest {
               "name": "旧模板",
               "referenceWidth": 100,
               "referenceHeight": 100,
+              "referenceImagePath": "reference_image.png",
               "items": [
                 {
                   "id": "item-1",
@@ -108,15 +114,34 @@ class HiddenObjectModelsTest {
     }
 
     @Test
-    fun `模板仓库支持保存复制导入导出`() {
+    fun `模板仓库以包含配置和截图的压缩包导入导出`() {
         val dir = Files.createTempDirectory("hidden-object-test").toFile()
         val repository = HiddenObjectTemplateRepository.forTests(dir)
-        val saved = repository.save(HiddenObjectTemplate(name = "关卡1", referenceWidth = 100, referenceHeight = 200))
+        val source = HiddenObjectTemplate(name = "关卡1", referenceWidth = 100, referenceHeight = 200)
+        val image = repository.referenceImageFile(source.id).apply { writeBytes(TEST_PNG_BYTES) }
+        val saved = repository.save(source.copy(referenceImagePath = image.absolutePath))
         assertNotNull(repository.get(saved.id))
         assertEquals(2, listOfNotNull(saved, repository.duplicate(saved.id)).size)
-        val imported = repository.importJson(repository.exportJson(saved.id)!!)
+
+        val packageBytes = ByteArrayOutputStream().also { repository.exportPackage(saved.id, it) }.toByteArray()
+        val entries = unzip(packageBytes)
+        assertEquals(setOf("template.json", "reference_image.png"), entries.keys)
+        assertTrue(entries.getValue("template.json").toString(Charsets.UTF_8).contains("\"referenceImagePath\": \"reference_image.png\""))
+        assertTrue(entries.getValue("reference_image.png").contentEquals(TEST_PNG_BYTES))
+
+        val imported = repository.importPackage(ByteArrayInputStream(packageBytes))
         assertTrue(imported.id != saved.id)
+        assertTrue(java.io.File(requireNotNull(imported.referenceImagePath)).readBytes().contentEquals(TEST_PNG_BYTES))
         assertEquals(3, repository.list().size)
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun `导出缺少参考截图的模板会失败`() {
+        val dir = Files.createTempDirectory("hidden-object-export-without-image-test").toFile()
+        val repository = HiddenObjectTemplateRepository.forTests(dir)
+        val saved = repository.save(HiddenObjectTemplate(name = "无截图模板"))
+
+        repository.exportPackage(saved.id, ByteArrayOutputStream())
     }
 
     @Test
@@ -164,5 +189,38 @@ class HiddenObjectModelsTest {
         assertTrue(runDir.isDirectory)
         HiddenObjectRunCache.cleanup(runDir)
         assertFalse(runDir.exists())
+    }
+
+    private fun HiddenObjectTemplateRepository.importJson(json: String): HiddenObjectTemplate =
+        importPackage(ByteArrayInputStream(createPackage(json, TEST_PNG_BYTES)))
+
+    private fun createPackage(json: String, image: ByteArray): ByteArray =
+        ByteArrayOutputStream().also { output ->
+            ZipOutputStream(output).use { zip ->
+                zip.putNextEntry(ZipEntry("template.json"))
+                zip.write(json.toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+                zip.putNextEntry(ZipEntry("reference_image.png"))
+                zip.write(image)
+                zip.closeEntry()
+            }
+        }.toByteArray()
+
+    private fun unzip(packageBytes: ByteArray): Map<String, ByteArray> {
+        val result = linkedMapOf<String, ByteArray>()
+        ZipInputStream(ByteArrayInputStream(packageBytes)).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                result[entry.name] = zip.readBytes()
+                zip.closeEntry()
+            }
+        }
+        return result
+    }
+
+    companion object {
+        private val TEST_PNG_BYTES = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+        )
     }
 }
